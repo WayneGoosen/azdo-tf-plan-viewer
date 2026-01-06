@@ -313,10 +313,8 @@ async function run() {
         console.log(`Report generated: ${reportPath}`);
 
         // Upload the report as a build attachment
+        // This attachment will be displayed in the custom "Terraform Plan" tab
         console.log(`##vso[task.addattachment type=Distributedtask.Core.Summary;name=${attachmentName};]${reportPath}`);
-
-        // Also upload as a generic attachment for the custom tab
-        console.log(`##vso[task.uploadfile]${reportPath}`);
 
         tl.setResult(tl.TaskResult.Succeeded, 'Terraform plan report generated successfully');
     } catch (err: any) {

@@ -34,14 +34,18 @@ async function loadPlanReport(collectionUri: string, projectId: string, buildId:
         // Get the build service
         const buildService = await VSS.getService<any>(VSS.ServiceIds.Build);
         
-        // Get attachments for the build
+        // Get attachments for the build of type Distributedtask.Core.Summary
+        // This matches the attachment type created by the TerraformPlanViewer task
         const attachments = await buildService.getAttachments(projectId, buildId, 'Distributedtask.Core.Summary');
         
         console.log('Attachments:', attachments);
         
-        // Find the terraform plan attachment
+        // Find the terraform plan attachment by exact name match first, then fallback to partial match
+        // Default attachment name is 'terraform-plan' but can be customized in task inputs
         const planAttachment = attachments.find((a: any) => 
-            a.name === 'terraform-plan' || a.name.includes('terraform')
+            a.name === 'terraform-plan'
+        ) || attachments.find((a: any) => 
+            a.name && a.name.toLowerCase().includes('terraform')
         );
         
         if (!planAttachment) {
@@ -52,7 +56,7 @@ async function loadPlanReport(collectionUri: string, projectId: string, buildId:
         
         // Get the attachment content URL
         // The attachment recordsUri or contentUrl should be used to fetch the actual content
-        const attachmentUrl = planAttachment.contentUrl || planAttachment._links.self.href;
+        const attachmentUrl = planAttachment.recordsUri || planAttachment._links.self.href;
         
         console.log('Loading report from:', attachmentUrl);
         

@@ -34,7 +34,7 @@ async function loadPlanReport(collectionUri: string, projectId: string, buildId:
         // Get the build service
         const buildService = await VSS.getService<any>(VSS.ServiceIds.Build);
         
-        // Get attachments for the build of type Distributedtask.Core.Summary
+        // Get attachments for the build of type DistributedTask.Core.Summary
         // This matches the attachment type created by the TerraformPlanViewer task
         const attachments = await buildService.getAttachments(projectId, buildId, 'Distributedtask.Core.Summary');
         

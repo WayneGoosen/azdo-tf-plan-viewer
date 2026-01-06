@@ -1,0 +1,3 @@
+This is a placeholder for the extension icon.
+A 128x128 PNG image should be placed here.
+For now, we'll use a simple colored square as a placeholder.

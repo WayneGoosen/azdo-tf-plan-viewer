@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "a1b2c3d4-e5f6-4a5b-9c8d-7e6f5a4b3c2d",
+  "name": "TerraformPlanViewer",
+  "friendlyName": "Terraform Plan Viewer",
+  "description": "Parse Terraform plan output and generate a visual HTML report",
+  "helpMarkdown": "This task parses a Terraform plan JSON file and creates a visual HTML report showing what resources will be created, updated, or destroyed.",
+  "category": "Utility",
+  "author": "Terraform Tools",
+  "version": {
+    "Major": 1,
+    "Minor": 0,
+    "Patch": 0
+  },
+  "instanceNameFormat": "Generate Terraform Plan Report",
+  "inputs": [
+    {
+      "name": "planJsonPath",
+      "type": "filePath",
+      "label": "Terraform Plan JSON Path",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "Path to the Terraform plan JSON file (generated with 'terraform show -json planfile')"
+    },
+    {
+      "name": "attachmentName",
+      "type": "string",
+      "label": "Attachment Name",
+      "defaultValue": "terraform-plan",
+      "required": false,
+      "helpMarkDown": "Name for the plan report attachment"
+    }
+  ],
+  "execution": {
+    "Node16": {
+      "target": "index.js"
+    }
+  }
+}

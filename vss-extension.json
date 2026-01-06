@@ -1,0 +1,58 @@
+{
+  "manifestVersion": 1,
+  "id": "terraform-plan-viewer",
+  "name": "Terraform Plan Viewer",
+  "version": "1.0.0",
+  "publisher": "terraform-tools",
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "description": "Visualize Terraform plan output in Azure DevOps pipelines with a beautiful UI showing what will be changed, added, or deleted.",
+  "categories": [
+    "Azure Pipelines"
+  ],
+  "icons": {
+    "default": "images/extension-icon.png"
+  },
+  "files": [
+    {
+      "path": "dist/buildAndReleaseTask"
+    },
+    {
+      "path": "dist/tab"
+    },
+    {
+      "path": "images",
+      "addressable": true
+    }
+  ],
+  "contributions": [
+    {
+      "id": "terraform-plan-task",
+      "type": "ms.vss-distributed-task.task",
+      "targets": [
+        "ms.vss-distributed-task.tasks"
+      ],
+      "properties": {
+        "name": "dist/buildAndReleaseTask"
+      }
+    },
+    {
+      "id": "terraform-plan-tab",
+      "type": "ms.vss-build-web.build-results-tab",
+      "description": "Displays the Terraform plan in a custom tab",
+      "targets": [
+        "ms.vss-build-web.build-results-view"
+      ],
+      "properties": {
+        "name": "Terraform Plan",
+        "uri": "dist/tab/tab.html",
+        "supportsTasks": [
+          "terraform-plan-task"
+        ]
+      }
+    }
+  ]
+}

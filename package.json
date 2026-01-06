@@ -1,0 +1,32 @@
+{
+  "name": "azdo-tf-plan-viewer",
+  "version": "1.0.0",
+  "description": "Azure DevOps extension to visualize Terraform plan output",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run clean && tsc && npm run copy-assets && npm run install-task-deps",
+    "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
+    "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",
+    "copy-tab-assets": "copyfiles -f tab/*.html dist/tab/",
+    "install-task-deps": "cd buildAndReleaseTask && npm install --production && cd .. && copyfiles -u 1 \"buildAndReleaseTask/node_modules/**/*\" dist/",
+    "package": "npm run build && tfx extension create --manifest-globs vss-extension.json --output-path dist/",
+    "clean": "rimraf dist *.vsix"
+  },
+  "keywords": [
+    "azure-devops",
+    "terraform",
+    "extension"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "copyfiles": "^2.4.1",
+    "rimraf": "^5.0.5",
+    "tfx-cli": "^0.16.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "azure-pipelines-task-lib": "^4.6.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.vsix
+*.log
+.DS_Store
+*.js.map
+buildAndReleaseTask/**/*.js
+buildAndReleaseTask/**/*.js.map
+!buildAndReleaseTask/node_modules/**
+tab/**/*.js
+tab/**/*.js.map
+*.tgz
+package-lock.json
+buildAndReleaseTask/package-lock.json

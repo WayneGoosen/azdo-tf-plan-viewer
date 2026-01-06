@@ -51,19 +51,18 @@ async function loadPlanReport(collectionUri: string, projectId: string, buildId:
         }
         
         // Get the attachment content URL
-        const attachmentUrl = `${collectionUri}${projectId}/_apis/build/builds/${buildId}/attachments/${planAttachment._links.self.href}`;
+        // The attachment recordsUri or contentUrl should be used to fetch the actual content
+        const attachmentUrl = planAttachment.contentUrl || planAttachment._links.self.href;
         
         console.log('Loading report from:', attachmentUrl);
         
         // Load the content via REST API
-        const client = VSS.getWebContext().account.name;
         const token = await VSS.getAccessToken();
         
         // Fetch the attachment content
         const response = await fetch(attachmentUrl, {
             headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${token}`
             }
         });
         

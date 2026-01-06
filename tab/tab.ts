@@ -56,7 +56,7 @@ async function loadPlanReport(collectionUri: string, projectId: string, buildId:
         
         // Get the attachment content URL
         // The attachment recordsUri or contentUrl should be used to fetch the actual content
-        const attachmentUrl = planAttachment.recordsUri || planAttachment._links.self.href;
+        const attachmentUrl = planAttachment.recordsUri || planAttachment._links?.self?.href;
         
         console.log('Loading report from:', attachmentUrl);
         

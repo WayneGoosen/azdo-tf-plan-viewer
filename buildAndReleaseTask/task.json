@@ -20,7 +20,7 @@
       "label": "Terraform Plan JSON Path",
       "defaultValue": "",
       "required": true,
-      "helpMarkDown": "Path to the Terraform plan JSON file (generated with 'terraform show -json planfile')"
+      "helpMarkdown": "Path to the Terraform plan JSON file (generated with 'terraform show -json planfile')"
     },
     {
       "name": "attachmentName",
@@ -28,7 +28,7 @@
       "label": "Attachment Name",
       "defaultValue": "terraform-plan",
       "required": false,
-      "helpMarkDown": "Name for the plan report attachment"
+      "helpMarkdown": "Name for the plan report attachment"
     }
   ],
   "execution": {

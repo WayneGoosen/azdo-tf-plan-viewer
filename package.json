@@ -8,7 +8,7 @@
     "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
     "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",
     "copy-tab-assets": "copyfiles -f tab/*.html dist/tab/",
-    "install-task-deps": "cd buildAndReleaseTask && npm install --production && cd .. && copyfiles -u 1 \"buildAndReleaseTask/node_modules/**/*\" dist/",
+    "install-task-deps": "cd buildAndReleaseTask && npm install --production && cd .. && cp -r buildAndReleaseTask/node_modules dist/buildAndReleaseTask/",
     "package": "npm run build && tfx extension create --manifest-globs vss-extension.json --output-path dist/",
     "clean": "rimraf dist *.vsix"
   },

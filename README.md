@@ -101,6 +101,26 @@ steps:
    ```
 5. The `.vsix` file will be created in the `dist` directory
 
+## Testing the Extension
+
+Before publishing, you can test the extension in your own Azure DevOps organization:
+
+1. Build and package the extension (see above)
+2. Upload the `.vsix` file as a **private** extension to the marketplace
+3. Share it with your organization
+4. Install it in your organization
+5. Create a test pipeline to verify functionality
+
+**📖 For detailed testing instructions, see [TESTING.md](TESTING.md)**
+
+The testing guide covers:
+- Creating a publisher account
+- Uploading as a private extension
+- Installing in your organization
+- Creating test pipelines with sample data
+- Verifying the extension works correctly
+- Troubleshooting common issues
+
 ## Publishing
 
 To publish the extension to the Azure DevOps Marketplace:
@@ -109,6 +129,9 @@ To publish the extension to the Azure DevOps Marketplace:
 2. Update the `publisher` field in `vss-extension.json`
 3. Package the extension: `npm run package`
 4. Upload the `.vsix` file to the marketplace
+5. Mark as public and submit for review (Microsoft reviews public extensions)
+
+**Note**: See [TESTING.md](TESTING.md) for detailed publishing instructions.
 
 ## License
 

@@ -3,36 +3,36 @@
   "id": "a1b2c3d4-e5f6-4a5b-9c8d-7e6f5a4b3c2d",
   "name": "TerraformPlanViewer",
   "friendlyName": "Terraform Plan Viewer",
-  "description": "Parse Terraform plan output and generate a visual HTML report",
-  "helpMarkdown": "This task parses a Terraform plan JSON file and creates a visual HTML report showing what resources will be created, updated, or destroyed.",
+  "description": "Attach a Terraform plan to the build so it renders in the Terraform Plan tab.",
+  "helpMarkdown": "Point this task at the Terraform plan file produced by `terraform plan -out=...`. Either the binary plan or the JSON form (`terraform show -json`) is accepted; if a binary plan is given, the task converts it automatically using the `terraform` CLI on the agent.",
   "category": "Utility",
   "author": "Terraform Tools",
   "version": {
     "Major": 1,
-    "Minor": 0,
+    "Minor": 1,
     "Patch": 0
   },
-  "instanceNameFormat": "Generate Terraform Plan Report",
+  "instanceNameFormat": "Publish Terraform plan",
   "inputs": [
     {
-      "name": "planJsonPath",
+      "name": "planPath",
       "type": "filePath",
-      "label": "Terraform Plan JSON Path",
+      "label": "Terraform plan file",
       "defaultValue": "",
       "required": true,
-      "helpMarkdown": "Path to the Terraform plan JSON file (generated with 'terraform show -json planfile')"
+      "helpMarkdown": "Path to a Terraform plan. Either form is accepted:\n- The binary file produced by `terraform plan -out=tfplan` (e.g. `$(System.DefaultWorkingDirectory)/tfplan`). The task will convert it via `terraform show -json` automatically — this requires the `terraform` CLI on PATH (running a TerraformInstaller or TerraformTaskV4 step earlier in the pipeline is enough).\n- The JSON form produced by `terraform show -json tfplan > tfplan.json`."
     },
     {
       "name": "attachmentName",
       "type": "string",
-      "label": "Attachment Name",
+      "label": "Attachment name",
       "defaultValue": "terraform-plan",
       "required": false,
-      "helpMarkdown": "Name for the plan report attachment"
+      "helpMarkdown": "Identifier for the attachment, also used as the label in the tab's plan selector. Use distinct names per stage/environment (e.g. `dev`, `staging`, `prod`) when publishing multiple plans in one build — the tab will show a dropdown to switch between them. Allowed characters: letters, digits, underscore, hyphen."
     }
   ],
   "execution": {
-    "Node16": {
+    "Node20_1": {
       "target": "index.js"
     }
   }

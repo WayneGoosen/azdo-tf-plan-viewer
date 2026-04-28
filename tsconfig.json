@@ -14,8 +14,7 @@
     "sourceMap": true
   },
   "include": [
-    "buildAndReleaseTask/**/*.ts",
-    "tab/**/*.ts"
+    "buildAndReleaseTask/**/*.ts"
   ],
   "exclude": [
     "node_modules",

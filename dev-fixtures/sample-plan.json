@@ -1,0 +1,155 @@
+{
+    "format_version": "1.2",
+    "terraform_version": "1.7.4",
+    "resource_changes": [
+        {
+            "address": "azurerm_resource_group.main",
+            "mode": "managed",
+            "type": "azurerm_resource_group",
+            "name": "main",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": ["create"],
+                "before": null,
+                "after": {
+                    "name": "rg-prod-eastus",
+                    "location": "eastus",
+                    "tags": { "env": "prod", "team": "platform" }
+                },
+                "after_unknown": { "id": true },
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_storage_account.logs",
+            "mode": "managed",
+            "type": "azurerm_storage_account",
+            "name": "logs",
+            "change": {
+                "actions": ["update"],
+                "before": {
+                    "name": "stlogsprod001",
+                    "min_tls_version": "TLS1_0",
+                    "tags": { "env": "prod" }
+                },
+                "after": {
+                    "name": "stlogsprod001",
+                    "min_tls_version": "TLS1_2",
+                    "tags": { "env": "prod", "owner": "platform" }
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_key_vault.main",
+            "mode": "managed",
+            "type": "azurerm_key_vault",
+            "name": "main",
+            "change": {
+                "actions": ["delete", "create"],
+                "before": {
+                    "name": "kv-prod-001",
+                    "sku_name": "standard",
+                    "soft_delete_retention_days": 7,
+                    "access_policy": [{ "object_id": "abc", "permissions": ["Get"] }]
+                },
+                "after": {
+                    "name": "kv-prod-001",
+                    "sku_name": "premium",
+                    "soft_delete_retention_days": 90,
+                    "access_policy": [{ "object_id": "abc", "permissions": ["Get", "List"] }]
+                },
+                "after_unknown": {},
+                "before_sensitive": { "access_policy": [{ "permissions": false }] },
+                "after_sensitive": { "access_policy": [{ "permissions": false }] },
+                "replace_paths": [["sku_name"]]
+            }
+        },
+        {
+            "address": "module.networking.azurerm_virtual_network.main",
+            "module_address": "module.networking",
+            "mode": "managed",
+            "type": "azurerm_virtual_network",
+            "name": "main",
+            "change": {
+                "actions": ["update"],
+                "before": {
+                    "name": "vnet-prod",
+                    "address_space": ["10.0.0.0/16"]
+                },
+                "after": {
+                    "name": "vnet-prod",
+                    "address_space": ["10.0.0.0/16", "10.1.0.0/16"]
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "module.networking.module.subnets.azurerm_subnet.app",
+            "module_address": "module.networking.module.subnets",
+            "mode": "managed",
+            "type": "azurerm_subnet",
+            "name": "app",
+            "change": {
+                "actions": ["create"],
+                "before": null,
+                "after": {
+                    "name": "snet-app",
+                    "address_prefixes": ["10.0.1.0/24"]
+                },
+                "after_unknown": { "id": true, "virtual_network_name": true },
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "module.legacy.azurerm_app_service.old",
+            "module_address": "module.legacy",
+            "mode": "managed",
+            "type": "azurerm_app_service",
+            "name": "old",
+            "change": {
+                "actions": ["delete"],
+                "before": {
+                    "name": "app-legacy",
+                    "site_config": { "always_on": true },
+                    "app_settings": { "API_KEY": "secret" }
+                },
+                "after": null,
+                "before_sensitive": { "app_settings": true },
+                "after_sensitive": false
+            }
+        }
+    ],
+    "output_changes": {
+        "resource_group_name": {
+            "actions": ["create"],
+            "before": null,
+            "after": "rg-prod-eastus",
+            "after_unknown": false,
+            "before_sensitive": false,
+            "after_sensitive": false
+        },
+        "key_vault_uri": {
+            "actions": ["delete", "create"],
+            "before": "https://kv-prod-001.vault.azure.net/",
+            "after": null,
+            "after_unknown": true,
+            "before_sensitive": false,
+            "after_sensitive": false
+        },
+        "storage_connection_string": {
+            "actions": ["update"],
+            "before": null,
+            "after": null,
+            "after_unknown": false,
+            "before_sensitive": true,
+            "after_sensitive": true
+        }
+    }
+}

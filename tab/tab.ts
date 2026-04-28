@@ -1,11 +1,24 @@
 // =============================================================================
 // Terraform Plan Viewer — tab renderer
 //
-// Fetches the plan JSON attached by the TerraformPlanViewer task and renders
-// a structured, searchable view: summary cards, module tree, attribute diffs,
-// and replace reasons. All rendering uses DOM APIs (textContent / createElement)
+// Renders the Terraform plan attached by the TerraformPlanViewer task as a
+// structured, searchable view. Uses the modern Azure DevOps Extension SDK
+// (`azure-devops-extension-sdk` + `azure-devops-extension-api`) bundled by
+// esbuild. All plan content is rendered via DOM APIs (textContent / createElement)
 // so plan content is never interpolated as HTML.
 // =============================================================================
+
+import * as SDK from 'azure-devops-extension-sdk';
+import {
+    CommonServiceIds,
+    IProjectPageService,
+    getClient,
+} from 'azure-devops-extension-api';
+import {
+    BuildRestClient,
+    BuildServiceIds,
+    IBuildPageDataService,
+} from 'azure-devops-extension-api/Build';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
@@ -64,11 +77,26 @@ interface AttrDiff {
     after?: string;
 }
 
+// Loose attachment shape — _links is typed `any` upstream, so we narrow here.
+interface AttachmentLite {
+    name: string;
+    _links?: { self?: { href?: string } };
+}
+
+// A plan attachment we can fetch on demand. Captured at bootstrap so the
+// selector can switch plans without re-listing or re-parsing URLs.
+interface PlanRef {
+    name: string;
+    projectId: string;
+    buildId: number;
+    timelineId: string;
+    recordId: string;
+}
+
 // ------------------------------ Classification ------------------------------
 
 function classifyAction(actions: string[]): ActionKind {
     const has = (a: string) => actions.includes(a);
-    // Check recreate first so it doesn't get caught by plain create/delete.
     if (has('create') && has('delete')) return 'recreate';
     if (has('create')) return 'create';
     if (has('delete')) return 'delete';
@@ -103,9 +131,6 @@ function emptyCounts(): Record<ActionKind, number> {
 
 function splitModuleAddress(addr: string | undefined): string[] {
     if (!addr) return [];
-    // module_address is like "module.foo.module.bar[0].module.baz".
-    // Split before each ".module." boundary; resource names contain no dots,
-    // so this is safe.
     return addr.split(/\.(?=module\.)/);
 }
 
@@ -264,7 +289,7 @@ function matchesFilter(state: RenderState, r: ResourceChange): boolean {
 
 // ------------------------------- Rendering ----------------------------------
 
-function renderPlan(plan: TerraformPlan, root: HTMLElement) {
+export function renderPlan(plan: TerraformPlan, root: HTMLElement) {
     clear(root);
 
     const tree = buildTree(plan.resource_changes ?? []);
@@ -412,7 +437,6 @@ function renderModuleNode(node: ModuleNode, state: RenderState, depth: number, i
         renderCountPills(node.counts),
     ]);
 
-    // Auto-expand modules during search so matches are visible.
     const shouldOpen = state.searchTerm.length > 0 || depth === 1;
     const details = el('details', { class: 'module-node' });
     if (shouldOpen) details.open = true;
@@ -486,15 +510,20 @@ function renderDiff(diffs: AttrDiff[]): HTMLElement {
         const row = el('div', { class: `diff-row ${rowClass}` });
         row.appendChild(el('span', { class: 'diff-glyph', text: d.kind }));
         row.appendChild(el('span', { class: 'diff-key', text: d.key }));
+
+        // Wrap the value side in a single cell so all rows align in the same
+        // column, regardless of whether they show "before → after" or just one.
+        const value = el('span', { class: 'diff-value' });
         if (d.kind === '~') {
-            row.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
-            row.appendChild(el('span', { class: 'diff-arrow', text: '→' }));
-            row.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
+            value.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
+            value.appendChild(el('span', { class: 'diff-arrow', text: ' → ' }));
+            value.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
         } else if (d.kind === '+') {
-            row.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
+            value.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
         } else {
-            row.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
+            value.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
         }
+        row.appendChild(value);
         table.appendChild(row);
     }
     return table;
@@ -526,98 +555,195 @@ function renderOutputs(outputs: Record<string, OutputChange>): HTMLElement {
 
 // ------------------------------- Networking ---------------------------------
 
-async function fetchPlan(buildId: number): Promise<{ plan: TerraformPlan; attachmentName: string }> {
-    const ctx = VSS.getWebContext();
-    const collection = ctx.collection.uri.replace(/\/$/, '');
-    const projectId = ctx.project.id;
+async function listPlans(): Promise<PlanRef[]> {
+    const projectService = await SDK.getService<IProjectPageService>(CommonServiceIds.ProjectPageService);
+    const buildService = await SDK.getService<IBuildPageDataService>(BuildServiceIds.BuildPageDataService);
 
-    const session = await VSS.getAccessToken();
-    const headers = { Authorization: `Bearer ${session.token}` };
+    const project = await projectService.getProject();
+    const buildPageData = await buildService.getBuildPageData();
 
-    const listUrl =
-        `${collection}/${projectId}/_apis/build/builds/${buildId}` +
-        `/attachments/${encodeURIComponent(ATTACHMENT_TYPE)}?api-version=7.0`;
+    if (!project) throw new Error('Project context unavailable.');
+    const buildId = buildPageData?.build?.id;
+    if (typeof buildId !== 'number') throw new Error('Build context unavailable.');
 
-    const listResp = await fetch(listUrl, { headers });
-    if (!listResp.ok) {
-        throw new Error(`Listing attachments failed: ${listResp.status} ${listResp.statusText}`);
-    }
-    const listJson = await listResp.json();
-    const attachments: Array<{ name: string; _links?: { self?: { href?: string } } }> = listJson?.value ?? [];
+    const projectId = project.id;
+    const client = getClient(BuildRestClient);
+    const attachments = (await client.getAttachments(projectId, buildId, ATTACHMENT_TYPE)) as AttachmentLite[];
 
-    if (!attachments.length) {
+    if (!attachments?.length) {
         throw new Error('No Terraform plan was attached to this build. ' +
             'Make sure the TerraformPlanViewer task ran successfully in the pipeline.');
     }
 
-    const att = attachments[0];
-    const fileUrl = att?._links?.self?.href;
-    if (!fileUrl) throw new Error('Attachment metadata is missing a download link.');
-
-    const fileResp = await fetch(fileUrl, { headers });
-    if (!fileResp.ok) {
-        throw new Error(`Downloading plan failed: ${fileResp.status} ${fileResp.statusText}`);
+    const refs: PlanRef[] = [];
+    for (const att of attachments) {
+        const href = att._links?.self?.href;
+        if (!href) continue;
+        // Both URL shapes (dev.azure.com and *.visualstudio.com) embed timeline +
+        // record IDs as /builds/{buildId}/{timelineId}/{recordId}/attachments/...
+        const m = href.match(/\/builds\/\d+\/([0-9a-fA-F-]+)\/([0-9a-fA-F-]+)\/attachments\//);
+        if (!m) continue;
+        refs.push({ name: att.name, projectId, buildId, timelineId: m[1], recordId: m[2] });
     }
+    if (!refs.length) throw new Error('Plan attachments are missing usable download links.');
 
-    const text = await fileResp.text();
-    let parsed: TerraformPlan;
-    try {
-        parsed = JSON.parse(text);
-    } catch (e: any) {
-        throw new Error(`Plan attachment is not valid JSON: ${e?.message ?? e}`);
-    }
-    return { plan: parsed, attachmentName: att.name };
+    refs.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    return refs;
 }
 
-// --------------------------------- Status -----------------------------------
+async function fetchPlanContent(ref: PlanRef): Promise<TerraformPlan> {
+    const client = getClient(BuildRestClient);
+    const buf = await client.getAttachment(
+        ref.projectId, ref.buildId, ref.timelineId, ref.recordId, ATTACHMENT_TYPE, ref.name
+    );
+    const text = new TextDecoder().decode(buf);
+    try {
+        return JSON.parse(text);
+    } catch (e: any) {
+        throw new Error(`Plan attachment "${ref.name}" is not valid JSON: ${e?.message ?? e}`);
+    }
+}
 
-function showStatus(title: string, message: string, kind: 'loading' | 'error' | 'empty' = 'loading') {
-    const container = document.getElementById('container');
-    if (!container) return;
-    clear(container);
-    container.appendChild(el('div', { class: `status status-${kind}` }, [
+// ------------------------------- Selector + body ---------------------------
+
+// Public type so the dev harness can inject a mock fetcher without depending
+// on the live ADO SDK. The orchestrator below is identical in both modes.
+export type PlanFetcher = (ref: PlanRef) => Promise<TerraformPlan>;
+
+export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: HTMLElement) {
+    if (refs.length === 0) {
+        showStatusInto(root, 'No Terraform plan was attached to this build.', '', 'error');
+        return;
+    }
+
+    clear(root);
+
+    // Persistent header (selector) + swappable body. Switching a plan only
+    // re-renders the body, so the dropdown never flashes or loses focus.
+    const selectorBar = el('div', { class: 'plan-selector-bar' });
+    const body = el('div', { class: 'plan-body' });
+    root.appendChild(selectorBar);
+    root.appendChild(body);
+
+    const cache = new Map<string, TerraformPlan>();
+    let select: HTMLSelectElement | null = null;
+    let current: PlanRef = refs[0];
+
+    const switchTo = async (ref: PlanRef) => {
+        current = ref;
+        if (cache.has(ref.name)) {
+            renderPlan(cache.get(ref.name)!, body);
+            return;
+        }
+
+        if (select) select.disabled = true;
+        showLoadingStage(body, `Loading plan: ${ref.name}…`, { skeleton: true });
+        try {
+            const plan = await fetcher(ref);
+            cache.set(ref.name, plan);
+            // Guard against races: only render if the user is still on this ref.
+            if (current === ref) renderPlan(plan, body);
+        } catch (err: any) {
+            if (current === ref) {
+                showStatusInto(body, 'Could not load Terraform plan',
+                    err?.message ?? String(err), 'error');
+            }
+        } finally {
+            if (select) select.disabled = false;
+        }
+    };
+
+    if (refs.length > 1) {
+        select = renderSelector(refs, current.name, (next) => { void switchTo(next); });
+        selectorBar.appendChild(el('label', { class: 'plan-selector', attrs: { for: 'plan-select' } }, [
+            el('span', { class: 'plan-selector-label', text: 'Plan' }),
+            select,
+        ]));
+    }
+
+    await switchTo(current);
+}
+
+function renderSelector(refs: PlanRef[], currentName: string, onSelect: (ref: PlanRef) => void): HTMLSelectElement {
+    const select = el('select', {
+        class: 'plan-selector-input',
+        attrs: { id: 'plan-select', 'aria-label': 'Select Terraform plan' },
+    });
+
+    for (const ref of refs) {
+        const opt = el('option', { text: ref.name, attrs: { value: ref.name } });
+        if (ref.name === currentName) opt.selected = true;
+        select.appendChild(opt);
+    }
+
+    select.addEventListener('change', () => {
+        const next = refs.find(r => r.name === select.value);
+        if (next) onSelect(next);
+    });
+
+    return select;
+}
+
+function showStatusInto(node: HTMLElement, title: string, message: string, kind: 'loading' | 'error' | 'empty') {
+    clear(node);
+    node.appendChild(el('div', { class: `status status-${kind}` }, [
         el('div', { class: 'status-title', text: title }),
-        el('div', { class: 'status-message', text: message }),
+        message ? el('div', { class: 'status-message', text: message }) : null,
     ]));
+}
+
+// Mid-load progress UI. Caption + optional skeleton that previews the page
+// structure that's about to render. The skeleton's shape mirrors the real
+// header / summary / controls / tree layout so the swap to real content is
+// near-zero reflow.
+function showLoadingStage(node: HTMLElement, title: string, opts: { skeleton?: boolean } = {}) {
+    clear(node);
+    node.appendChild(el('div', { class: 'loading-stage' }, [
+        el('div', { class: 'loading-stage-title', text: title }),
+    ]));
+    if (opts.skeleton) node.appendChild(renderSkeleton());
+}
+
+function renderSkeleton(): HTMLElement {
+    const skeleton = el('div', { class: 'skeleton', attrs: { 'aria-hidden': 'true' } });
+    const summary = el('div', { class: 'skeleton-summary' });
+    for (let i = 0; i < 4; i++) summary.appendChild(el('div', { class: 'skeleton-card' }));
+    skeleton.appendChild(summary);
+    skeleton.appendChild(el('div', { class: 'skeleton-controls' }));
+    const list = el('div', { class: 'skeleton-list' });
+    for (let i = 0; i < 6; i++) list.appendChild(el('div', { class: 'skeleton-row' }));
+    skeleton.appendChild(list);
+    return skeleton;
 }
 
 // --------------------------------- Bootstrap --------------------------------
 
-async function loadAndRender(buildId: number) {
+async function bootstrap() {
     const container = document.getElementById('container');
     if (!container) return;
-
-    showStatus('Loading Terraform plan…', `Build ${buildId}`, 'loading');
+    // Note: tab.html ships a static "Loading Terraform plan…" status that's
+    // visible from iframe-load until this script runs — so there's no flash
+    // before the first stage label below.
 
     try {
-        const { plan } = await fetchPlan(buildId);
-        clear(container);
-        renderPlan(plan, container);
+        showLoadingStage(container, 'Connecting to Azure DevOps…');
+        await SDK.init({ loaded: false, applyTheme: true });
+        await SDK.ready();
+
+        showLoadingStage(container, 'Listing Terraform plans…');
+        const refs = await listPlans();
+        await renderPlans(refs, fetchPlanContent, container);
+
+        SDK.notifyLoadSucceeded();
     } catch (err: any) {
-        showStatus('Could not load Terraform plan',
+        showStatusInto(container, 'Could not load Terraform plan',
             err?.message ?? 'An unknown error occurred.', 'error');
+        try { SDK.notifyLoadFailed(err?.message ?? String(err)); } catch { /* SDK might not be initialized */ }
     }
 }
 
-VSS.init({ explicitNotifyLoaded: true, usePlatformStyles: true, applyTheme: true });
-
-VSS.ready(() => {
-    const config = VSS.getConfiguration();
-
-    // The build-results-tab contribution provides build context via
-    // onBuildChanged. webContext.build does not exist here.
-    if (config && typeof config.onBuildChanged === 'function') {
-        config.onBuildChanged(build => {
-            if (build && typeof build.id === 'number') {
-                void loadAndRender(build.id);
-            }
-        });
-    } else if (config?.buildId) {
-        void loadAndRender(config.buildId);
-    } else {
-        showStatus('No build context',
-            'This tab is meant to render inside a build run.', 'error');
-    }
-
-    VSS.notifyLoadSucceeded();
-});
+// Skip auto-bootstrap when the local dev harness sets the flag — it calls
+// renderPlan() directly with a fixture instead.
+if (!(window as unknown as { __TF_DEV__?: boolean }).__TF_DEV__) {
+    void bootstrap();
+}

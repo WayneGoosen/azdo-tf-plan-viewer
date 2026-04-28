@@ -2,30 +2,84 @@
   "manifestVersion": 1,
   "id": "terraform-plan-viewer",
   "name": "Terraform Plan Viewer",
-  "version": "1.0.0",
-  "publisher": "terraform-tools",
+  "version": "0.0.9",
+  "publisher": "WayneGoosen",
   "targets": [
     {
       "id": "Microsoft.VisualStudio.Services"
     }
   ],
-  "description": "Visualize Terraform plan output in Azure DevOps pipelines with a beautiful UI showing what will be changed, added, or deleted.",
+  "description": "Read your Terraform plans like code reviews — module tree, attribute-level diffs, and replace reasons, right in your Azure DevOps build summary.",
   "categories": [
     "Azure Pipelines"
+  ],
+  "tags": [
+    "terraform",
+    "tofu",
+    "opentofu",
+    "iac",
+    "infrastructure-as-code",
+    "plan",
+    "diff",
+    "azure-pipelines",
+    "build-tab",
+    "azurerm",
+    "devops"
+  ],
+  "scopes": [
+    "vso.build"
   ],
   "icons": {
     "default": "images/extension-icon.png"
   },
+  "content": {
+    "details": {
+      "path": "marketplace/overview.md"
+    }
+  },
+  "links": {
+    "repository": {
+      "uri": "https://github.com/WayneGoosen/azdo-tf-plan-viewer"
+    },
+    "issues": {
+      "uri": "https://github.com/WayneGoosen/azdo-tf-plan-viewer/issues"
+    },
+    "support": {
+      "uri": "https://github.com/WayneGoosen/azdo-tf-plan-viewer/issues"
+    },
+    "license": {
+      "uri": "https://github.com/WayneGoosen/azdo-tf-plan-viewer/blob/main/LICENSE"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "uri": "https://github.com/WayneGoosen/azdo-tf-plan-viewer"
+  },
+  "screenshots": [
+    {
+      "path": "marketplace/images/01-hero-overview.png"
+    },
+    {
+      "path": "marketplace/images/02-attribute-diff.png"
+    },
+    {
+      "path": "marketplace/images/03-replace-reasons.png"
+    }
+  ],
   "files": [
     {
       "path": "dist/buildAndReleaseTask"
     },
     {
-      "path": "dist/tab"
+      "path": "dist/tab",
+      "addressable": true
     },
     {
       "path": "images",
       "addressable": true
+    },
+    {
+      "path": "marketplace"
     }
   ],
   "contributions": [
@@ -50,7 +104,7 @@
         "name": "Terraform Plan",
         "uri": "dist/tab/tab.html",
         "supportsTasks": [
-          "terraform-plan-task"
+          "a1b2c3d4-e5f6-4a5b-9c8d-7e6f5a4b3c2d"
         ]
       }
     }

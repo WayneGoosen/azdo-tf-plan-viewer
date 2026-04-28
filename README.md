@@ -16,11 +16,13 @@ An extension for Azure DevOps which shows a beautiful UI of Terraform plan outpu
 
 ## Usage
 
-### Step 1: Generate Terraform Plan JSON
-
-First, generate a Terraform plan and export it as JSON:
+### Step 1: Generate a Terraform plan
 
 ```yaml
+- task: TerraformInstaller@0
+  inputs:
+    terraformVersion: 'latest'
+
 - task: Bash@3
   displayName: 'Terraform Plan'
   inputs:
@@ -28,61 +30,49 @@ First, generate a Terraform plan and export it as JSON:
     script: |
       terraform init
       terraform plan -out=tfplan
-      terraform show -json tfplan > tfplan.json
 ```
 
 ### Step 2: Add the Terraform Plan Viewer Task
 
-Add the Terraform Plan Viewer task to process and display the plan:
-
 ```yaml
 - task: TerraformPlanViewer@1
-  displayName: 'Generate Terraform Plan Report'
+  displayName: 'Publish Terraform Plan'
   inputs:
-    planJsonPath: '$(System.DefaultWorkingDirectory)/tfplan.json'
-    attachmentName: 'terraform-plan'
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan'
 ```
+
+The binary plan is converted on the agent via `terraform show -json`. If you'd rather convert it yourself, pass a JSON file (`terraform show -json tfplan > tfplan.json`) — both forms work.
 
 ### Step 3: View the Report
 
-After the pipeline runs, navigate to the pipeline run details and click on the **"Terraform Plan"** tab to see the visual report.
+After the pipeline runs, open the pipeline run and click the **"Terraform Plan"** tab.
 
-## Example Pipeline
+## Multi-stage pipelines
+
+Run the task once per stage with distinct `attachmentName` values. The tab shows a dropdown to switch between plans without reloading.
 
 ```yaml
-trigger:
-  - main
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-steps:
-- task: TerraformInstaller@0
+- task: TerraformPlanViewer@1
+  displayName: 'Publish dev plan'
   inputs:
-    terraformVersion: 'latest'
-
-- task: Bash@3
-  displayName: 'Terraform Init and Plan'
-  inputs:
-    targetType: 'inline'
-    script: |
-      cd terraform
-      terraform init
-      terraform plan -out=tfplan
-      terraform show -json tfplan > tfplan.json
+    planPath: '$(System.DefaultWorkingDirectory)/dev/tfplan'
+    attachmentName: 'dev'
 
 - task: TerraformPlanViewer@1
-  displayName: 'Generate Terraform Plan Report'
+  displayName: 'Publish prod plan'
   inputs:
-    planJsonPath: '$(System.DefaultWorkingDirectory)/terraform/tfplan.json'
+    planPath: '$(System.DefaultWorkingDirectory)/prod/tfplan'
+    attachmentName: 'prod'
 ```
+
+The selector is hidden when only one plan is attached.
 
 ## Task Inputs
 
 | Input | Required | Description | Default |
 |-------|----------|-------------|---------|
-| `planJsonPath` | Yes | Path to the Terraform plan JSON file (generated with `terraform show -json planfile`) | - |
-| `attachmentName` | No | Name for the plan report attachment | `terraform-plan` |
+| `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=...`) or JSON (`terraform show -json`). Binary plans are converted on the agent via the `terraform` CLI. | - |
+| `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 
 ## Building from Source
 

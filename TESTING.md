@@ -131,12 +131,11 @@ steps:
     script: |
       terraform init
       terraform plan -out=tfplan
-      terraform show -json tfplan > tfplan.json
 
 - task: TerraformPlanViewer@1
-  displayName: 'Generate Terraform Plan Report'
+  displayName: 'Publish Terraform Plan'
   inputs:
-    planJsonPath: '$(System.DefaultWorkingDirectory)/tfplan.json'
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan'
 ```
 
 ### Option B: Using Mock Data
@@ -188,9 +187,9 @@ steps:
       EOF
 
 - task: TerraformPlanViewer@1
-  displayName: 'Generate Terraform Plan Report'
+  displayName: 'Publish Terraform Plan'
   inputs:
-    planJsonPath: '$(System.DefaultWorkingDirectory)/tfplan.json'
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan.json'
 ```
 
 ## Step 8: Run the Pipeline and Verify

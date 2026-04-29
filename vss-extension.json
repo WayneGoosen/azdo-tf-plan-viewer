@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "terraform-plan-viewer",
   "name": "Terraform Plan Viewer",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "WayneGoosen",
   "targets": [
     {

@@ -7,7 +7,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "azure-pipelines-task-lib": "^4.6.0"
+    "azure-pipelines-task-lib": "^5.2.10"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

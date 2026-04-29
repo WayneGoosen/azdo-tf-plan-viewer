@@ -10,7 +10,7 @@
     "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
     "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",
     "copy-tab-assets": "copyfiles -f tab/*.html tab/*.css dist/tab/",
-    "install-task-deps": "cd buildAndReleaseTask && npm install --production && cd .. && cp -r buildAndReleaseTask/node_modules dist/buildAndReleaseTask/",
+    "install-task-deps": "cd buildAndReleaseTask && npm install --omit=dev && cd .. && cp -r buildAndReleaseTask/node_modules dist/buildAndReleaseTask/",
     "package": "npm run build && tfx extension create --manifest-globs vss-extension.json --output-path dist/",
     "clean": "rimraf dist *.vsix",
     "typecheck:tab": "tsc --noEmit -p tsconfig.tab.json",
@@ -37,7 +37,7 @@
   "dependencies": {
     "azure-devops-extension-api": "^4.270.0",
     "azure-devops-extension-sdk": "^4.2.0",
-    "azure-pipelines-task-lib": "^4.6.0",
+    "azure-pipelines-task-lib": "^5.2.10",
     "tslib": "^2.8.1"
   }
 }

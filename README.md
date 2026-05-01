@@ -1,22 +1,41 @@
 # Azure DevOps Terraform Plan Viewer
 
-An extension for Azure DevOps which shows a beautiful UI of Terraform plan output within a pipeline run.
+[![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/WayneGoosen.terraform-plan-viewer?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/WayneGoosen.terraform-plan-viewer)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
+[![Rating](https://img.shields.io/visual-studio-marketplace/r/WayneGoosen.terraform-plan-viewer)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer&ssr=false#review-details)
+[![Main](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml/badge.svg)](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml)
+[![License: MIT](https://img.shields.io/github/license/WayneGoosen/azdo-tf-plan-viewer)](LICENSE)
 
-## Features
+> Read your Terraform plans like code reviews, not CLI dumps.
 
-- 📊 **Visual Dashboard**: See at a glance what will be created, updated, deleted, or recreated
-- 🎨 **Color-Coded Display**: Easy-to-understand color coding for different actions
-- 📑 **Custom Tab**: Dedicated "Plan Review" tab in your pipeline runs
-- 🔍 **Detailed View**: View all resource changes in an organized, readable format
+A native **Plan Review** tab for Azure DevOps build summaries. Renders `terraform plan` output as a structured, searchable diff — module tree, attribute-level before → after, replace reasons, multi-stage selector — instead of dumping it as text into the build log.
 
-## Installation
+![Plan Review tab — overview](marketplace/images/01-hero-overview.png)
 
-1. Install the extension from the Azure DevOps Marketplace (or build and install manually)
-2. Add the Terraform Plan Viewer task to your pipeline after running `terraform plan`
+---
 
-## Usage
+## Why this exists
 
-### Step 1: Generate a Terraform plan
+Most Azure DevOps pipelines do one of two things with a Terraform plan:
+
+- **Dump it as text** into the build log. Reviewing means scrolling through thousands of ANSI-coded lines and hoping `Ctrl+F` finds what matters.
+- **Generate a static HTML report** at pipeline time. Locked to one theme, can't be filtered, can't be searched, and goes stale the moment requirements shift.
+
+Neither is built for the moment that matters: a human deciding whether the change is safe to apply. This extension treats the plan as **structured data**, not text — so the tab can do everything a code reviewer needs.
+
+## What you get
+
+- **Module-grouped tree.** Resources nest by their `module_address` (`module.networking.module.subnets`). Each module shows rolled-up counts: `+1 ~1 −1`.
+- **Attribute-level diffs.** Expand any resource to see exactly which keys changed, **before → after**, with `+ – ~` markers. Sensitive values render as `(sensitive)`. Computed values render as `(known after apply)`.
+- **Replace reasons.** For `[delete, create]` resources, the tab surfaces the plan's `replace_paths` — answering *"why is this being recreated?"* with one line instead of guesswork.
+- **Click-to-filter summary.** Four cards at the top — Create / Update / Recreate / Delete — each clickable. Combine with a search box across resource addresses and types.
+- **Multi-stage selector.** Publish multiple plans per build (dev / staging / prod) and switch between them in a dropdown. The selector hides when only one plan is attached, so single-plan UX stays unchanged.
+- **Outputs section.** Output changes are rendered separately so downstream consumers don't get blindsided by a removed `connection_string`.
+- **Native ADO theming.** Colours use ADO theme tokens — light, dark, and high-contrast modes all work without extra config. Monospace is Cascadia Mono (no programming ligatures), so literal attribute values like `!=` and `->` render as written.
+
+![Attribute diff and replace reasons](marketplace/images/03-replace-reasons.png)
+
+## Quick start
 
 ```yaml
 - task: TerraformInstaller@0
@@ -30,26 +49,23 @@ An extension for Azure DevOps which shows a beautiful UI of Terraform plan outpu
     script: |
       terraform init
       terraform plan -out=tfplan
-```
 
-### Step 2: Add the Terraform Plan Viewer Task
-
-```yaml
 - task: TerraformPlanViewer@1
   displayName: 'Publish Terraform Plan'
   inputs:
     planPath: '$(System.DefaultWorkingDirectory)/tfplan'
 ```
 
-The binary plan is converted on the agent via `terraform show -json`. If you'd rather convert it yourself, pass a JSON file (`terraform show -json tfplan > tfplan.json`) — both forms work.
+After the pipeline runs, open the build and click the **Plan Review** tab.
 
-### Step 3: View the Report
+The task accepts either form of plan:
 
-After the pipeline runs, open the pipeline run and click the **"Plan Review"** tab.
+- The **binary plan** from `terraform plan -out=tfplan` — the task converts it via `terraform show -json` automatically.
+- The **JSON form** from `terraform show -json tfplan > tfplan.json` — useful if `terraform` isn't on the publishing agent.
 
-## Multi-stage pipelines
+## Multi-stage example
 
-Run the task once per stage with distinct `attachmentName` values. The tab shows a dropdown to switch between plans without reloading.
+Call the task once per stage with distinct `attachmentName` values:
 
 ```yaml
 - task: TerraformPlanViewer@1
@@ -65,63 +81,51 @@ Run the task once per stage with distinct `attachmentName` values. The tab shows
     attachmentName: 'prod'
 ```
 
-The selector is hidden when only one plan is attached.
+Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, the first is selected by default.
 
-## Task Inputs
+## Task inputs
 
 | Input | Required | Description | Default |
-|-------|----------|-------------|---------|
-| `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=...`) or JSON (`terraform show -json`). Binary plans are converted on the agent via the `terraform` CLI. | - |
+|---|---|---|---|
+| `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 
-## Building from Source
+## How it works
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Build the extension:
-   ```bash
-   npm run build
-   ```
-4. Package the extension:
-   ```bash
-   npm run package
-   ```
-5. The `.vsix` file will be created in the `dist` directory
+The task uploads the plan JSON as a build attachment under the type `terraform-plan-viewer.plan`. The tab fetches the attachment via Azure DevOps's Build REST API, parses it client-side, and renders the diff entirely in the browser. No server, no database, no third-party endpoint — plan data sits in your Azure DevOps organization the same way build logs do.
 
-## Testing the Extension
+## Privacy & security
 
-Before publishing, you can test the extension in your own Azure DevOps organization:
+- **No third-party calls.** Plan JSON stays in your Azure DevOps organization. Nothing leaves your tenant.
+- **Sensitive values are masked.** Anything Terraform marks `sensitive` (`before_sensitive` / `after_sensitive`) renders as `(sensitive)` — the underlying value never reaches the DOM.
+- **DOM-safe rendering.** Plan content goes through `textContent` / `createElement`, never as an HTML string — so a malicious resource address can't inject script.
 
-1. Build and package the extension (see above)
-2. Upload the `.vsix` file as a **private** extension to the marketplace
-3. Share it with your organization
-4. Install it in your organization
-5. Create a test pipeline to verify functionality
+## Local development
 
-**📖 For detailed testing instructions, see [TESTING.md](TESTING.md)**
+```bash
+npm install
+npm run build      # full build: task + tab + package
+npm run dev        # local dev harness — sample plans in dev-fixtures/
+```
 
-The testing guide covers:
-- Creating a publisher account
-- Uploading as a private extension
-- Installing in your organization
-- Creating test pipelines with sample data
-- Verifying the extension works correctly
-- Troubleshooting common issues
+The dev harness drives the production `renderPlans()` path with mock attachments backed by fixture files, so you can iterate on the tab without an ADO build. `?slow=15000` (query string) makes the loading state visible long enough to inspect; `?single=1` exercises the single-plan code path.
 
-## Releasing & Publishing
+For end-to-end testing inside a real Azure DevOps organization, see [TESTING.md](TESTING.md).
 
-The full release pipeline (CI workflows, GitVersion, marketplace publish) is documented in **[.github/RELEASING.md](.github/RELEASING.md)**:
+## Releasing
 
-- One-time setup: creating the Azure DevOps `ADO_PUBLISHER_PAT`, adding it as a GitHub secret, anchoring GitVersion's commit count.
-- Day-to-day flow: how PR / main / publish-to-marketplace workflows fit together.
-- Overriding the version bump via `+semver:` commit footers.
-- Troubleshooting publish failures.
+CI handles build, version calculation, and marketplace publishing. The full setup (`ADO_PUBLISHER_PAT` secret, GitVersion anchoring, day-to-day release flow) is documented in **[.github/RELEASING.md](.github/RELEASING.md)**.
 
-For first-time manual marketplace upload (before automated publishing is wired), see [TESTING.md](TESTING.md).
+The version is **calculated automatically from commit messages**:
+
+| Commit prefix or footer | Bump |
+|---|---|
+| `feat:` (or `feat(scope):`) | minor |
+| `fix:` (or `fix(scope):`) | patch |
+| `+semver: skip` (footer) | no bump |
+| `+semver: minor` / `+semver: major` (footer) | explicit override |
+| anything else | patch (default) |
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

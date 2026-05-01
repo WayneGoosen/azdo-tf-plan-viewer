@@ -11,8 +11,6 @@ buildAndReleaseTask/**/*.js.map
 tab/**/*.js
 tab/**/*.js.map
 *.tgz
-package-lock.json
-buildAndReleaseTask/package-lock.json
 
 # Local working notes — not part of the published extension
 CLAUDE.md

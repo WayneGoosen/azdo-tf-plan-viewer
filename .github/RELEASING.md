@@ -38,13 +38,13 @@ The marketplace-publish workflow needs a Personal Access Token with permission t
 1. Go to the repo on GitHub → **Settings** → **Secrets and variables** → **Actions**.
    - Direct link pattern: `https://github.com/WayneGoosen/azdo-tf-plan-viewer/settings/secrets/actions`
 2. Click **New repository secret**.
-   - **Name**: ` (must match exactly — `marketplace-publish.ADO_PUBLISHER_PAT`yml` reads `secrets.ADO_PUBLISHER_PAT`).
+   - **Name**: `ADO_PUBLISHER_PAT` (must match exactly — `marketplace-publish.yml` reads `secrets.ADO_PUBLISHER_PAT`).
    - **Secret**: paste the PAT from step 1.
 3. Click **Add secret**.
 
 ### 3. Anchor GitVersion's commit count
 
-GitVersion's Mainline mode counts commits since the most recent reachable tag. Without an anchor tag it counts from repo init, which produces surprisingly high numbers on the first auto-published version.
+GitVersion counts commits since the most recent reachable tag. Without an anchor tag it counts from repo init, which produces surprisingly high numbers on the first auto-published version.
 
 After CI is wired up (this branch landed on `main`), tag `main` HEAD with the last manually published version:
 

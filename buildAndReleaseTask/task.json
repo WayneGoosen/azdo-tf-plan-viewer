@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "a1b2c3d4-e5f6-4a5b-9c8d-7e6f5a4b3c2d",
+  "name": "TerraformPlanViewer",
+  "friendlyName": "Terraform Plan Viewer",
+  "description": "Attach a Terraform plan to the build so it renders in the Plan Review tab.",
+  "helpMarkdown": "Point this task at the Terraform plan file produced by `terraform plan -out=...`. Either the binary plan or the JSON form (`terraform show -json`) is accepted; if a binary plan is given, the task converts it automatically using the `terraform` CLI on the agent.",
+  "category": "Utility",
+  "author": "Terraform Tools",
+  "version": {
+    "Major": 1,
+    "Minor": 2,
+    "Patch": 0
+  },
+  "instanceNameFormat": "Publish Terraform plan",
+  "inputs": [
+    {
+      "name": "planPath",
+      "type": "filePath",
+      "label": "Terraform plan file",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkdown": "Path to a Terraform plan. Either form is accepted:\n- The binary file produced by `terraform plan -out=tfplan` (e.g. `$(System.DefaultWorkingDirectory)/tfplan`). The task will convert it via `terraform show -json` automatically — this requires the `terraform` CLI on PATH (running a TerraformInstaller or TerraformTaskV4 step earlier in the pipeline is enough).\n- The JSON form produced by `terraform show -json tfplan > tfplan.json`."
+    },
+    {
+      "name": "attachmentName",
+      "type": "string",
+      "label": "Attachment name",
+      "defaultValue": "terraform-plan",
+      "required": false,
+      "helpMarkdown": "Identifier for the attachment, also used as the label in the tab's plan selector. Use distinct names per stage/environment (e.g. `dev`, `staging`, `prod`) when publishing multiple plans in one build — the tab will show a dropdown to switch between them. Allowed characters: letters, digits, underscore, hyphen."
+    }
+  ],
+  "execution": {
+    "Node20_1": {
+      "target": "index.js"
+    }
+  }
+}

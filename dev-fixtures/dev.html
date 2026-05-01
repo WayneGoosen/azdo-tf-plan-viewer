@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Plan Review — local dev</title>
+    <link rel="stylesheet" href="tab.css">
+    <link rel="stylesheet" href="dev.css">
+
+    <!--
+      Set the bypass flag BEFORE tab.js runs so its bootstrap() doesn't try to
+      contact ADO. dev.js then drives renderPlans() with fixture-backed refs.
+    -->
+    <script>window.__TF_DEV__ = true;</script>
+</head>
+<body>
+    <div class="dev-toolbar">
+        <strong>Local dev harness</strong>
+        <span>multi-plan: switch via the in-tab dropdown</span>
+        <span>·</span>
+        <a href="?single=1">single-plan view</a>
+        <span style="margin-left: auto; opacity: 0.6">edit tab.ts → re-run `npm run dev` → reload</span>
+    </div>
+    <div id="container">
+        <div class="status status-loading"><div class="status-title">Loading fixtures…</div></div>
+    </div>
+
+    <script src="tab.js"></script>
+    <script src="dev.js"></script>
+</body>
+</html>

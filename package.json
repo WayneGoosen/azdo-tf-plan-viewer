@@ -1,0 +1,43 @@
+{
+  "name": "azdo-tf-plan-viewer",
+  "version": "1.0.0",
+  "description": "Azure DevOps extension to visualize Terraform plan output",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run clean && npm run build:task && npm run build:tab && npm run copy-assets && npm run install-task-deps",
+    "build:task": "tsc",
+    "build:tab": "webpack --mode production",
+    "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
+    "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",
+    "copy-tab-assets": "copyfiles -f tab/*.html tab/*.css dist/tab/",
+    "install-task-deps": "cd buildAndReleaseTask && npm install --omit=dev && cd .. && cp -r buildAndReleaseTask/node_modules dist/buildAndReleaseTask/",
+    "package": "npm run build && tfx extension create --manifest-globs vss-extension.json --output-path dist/",
+    "clean": "rimraf dist *.vsix",
+    "typecheck:tab": "tsc --noEmit -p tsconfig.tab.json",
+    "dev:prepare": "npm run build:tab && npm run copy-tab-assets && rimraf .dev && copyfiles -u 2 \"dist/tab/**/*\" .dev/ && copyfiles -u 1 \"dev-fixtures/**/*\" .dev/",
+    "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html"
+  },
+  "keywords": [
+    "azure-devops",
+    "terraform",
+    "extension"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "copyfiles": "^2.4.1",
+    "rimraf": "^5.0.5",
+    "tfx-cli": "^0.23.1",
+    "ts-loader": "^9.5.7",
+    "typescript": "^5.3.3",
+    "webpack": "^5.106.2",
+    "webpack-cli": "^7.0.2"
+  },
+  "dependencies": {
+    "azure-devops-extension-api": "^4.270.0",
+    "azure-devops-extension-sdk": "^4.2.0",
+    "azure-pipelines-task-lib": "^5.2.10",
+    "tslib": "^2.8.1"
+  }
+}

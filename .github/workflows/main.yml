@@ -1,0 +1,95 @@
+name: Main
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to create release + tag
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v4.0.1
+        with:
+          versionSpec: '6.x'
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v4.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install task dependencies
+        working-directory: buildAndReleaseTask
+        run: npm ci
+
+      - name: Stamp calculated version into vss-extension.json
+        env:
+          VERSION: ${{ steps.gitversion.outputs.majorMinorPatch }}
+        run: |
+          set -e
+          echo "Stamping vss-extension.json:version = $VERSION"
+          jq --arg v "$VERSION" '.version = $v' vss-extension.json > vss-extension.json.tmp
+          mv vss-extension.json.tmp vss-extension.json
+          grep -m1 '"version"' vss-extension.json
+
+      - name: Typecheck task
+        run: npx tsc --noEmit
+
+      - name: Typecheck tab
+        run: npm run typecheck:tab
+
+      - name: Build & package
+        run: npm run package
+
+      - name: Verify marketplace assets in .vsixmanifest
+        run: |
+          set -e
+          VSIX=$(ls dist/*.vsix | head -1)
+          MANIFEST=$(unzip -p "$VSIX" extension.vsixmanifest)
+          fail=0
+          for asset in \
+            "Microsoft.VisualStudio.Services.Content.Details" \
+            "Microsoft.VisualStudio.Services.Screenshots.1" \
+            "Microsoft.VisualStudio.Services.Icons.Default"; do
+            if ! grep -q "$asset" <<<"$MANIFEST"; then
+              echo "::error::Missing asset entry in .vsixmanifest: $asset"
+              fail=1
+            fi
+          done
+          [ $fail -eq 0 ] && echo "Marketplace assets verified."
+
+      - name: Create GitHub Release with .vsix attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.gitversion.outputs.majorMinorPatch }}
+        run: |
+          set -e
+          TAG="v$VERSION"
+          VSIX=$(ls dist/*.vsix | head -1)
+          # If a release for this tag already exists (re-run / workflow_dispatch),
+          # upload the new asset to it; otherwise create the release.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; uploading .vsix to it."
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            echo "Creating release $TAG."
+            gh release create "$TAG" "$VSIX" \
+              --title "Release $TAG" \
+              --generate-notes
+          fi

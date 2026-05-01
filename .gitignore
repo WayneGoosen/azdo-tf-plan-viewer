@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.dev/
+*.vsix
+*.log
+.DS_Store
+*.js.map
+buildAndReleaseTask/**/*.js
+buildAndReleaseTask/**/*.js.map
+!buildAndReleaseTask/node_modules/**
+tab/**/*.js
+tab/**/*.js.map
+*.tgz
+
+# Local working notes — not part of the published extension
+CLAUDE.md
+tasks/
+
+# Local secrets (e.g. GEMINI_API_KEY for the icon generator)
+.env
+.env.local
+
+# Playwright MCP session output (snapshots, console logs, dev screenshots)
+.playwright-mcp/
+
+# Scratch screenshots dropped at the repo root during dev/testing.
+# Marketing-ready screenshots live under marketplace/images/ and are tracked.
+/*.png

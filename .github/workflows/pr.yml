@@ -1,0 +1,126 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GitVersion needs full history
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v4.0.1
+        with:
+          versionSpec: '6.x'
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v4.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install task dependencies
+        working-directory: buildAndReleaseTask
+        run: npm ci
+
+      - name: Typecheck task
+        run: npx tsc --noEmit
+
+      - name: Typecheck tab
+        run: npm run typecheck:tab
+
+      - name: Build & package
+        run: npm run package
+
+      - name: Verify marketplace assets in .vsixmanifest
+        # Catches the gotcha documented in CLAUDE.md → Extension Manifest:
+        # if `marketplace/` ever sneaks back into vss-extension.json `files[]`,
+        # the Content.Details / Screenshots assets get silently dropped.
+        run: |
+          set -e
+          VSIX=$(ls dist/*.vsix | head -1)
+          MANIFEST=$(unzip -p "$VSIX" extension.vsixmanifest)
+          fail=0
+          for asset in \
+            "Microsoft.VisualStudio.Services.Content.Details" \
+            "Microsoft.VisualStudio.Services.Screenshots.1" \
+            "Microsoft.VisualStudio.Services.Icons.Default"; do
+            if ! grep -q "$asset" <<<"$MANIFEST"; then
+              echo "::error::Missing asset entry in .vsixmanifest: $asset"
+              fail=1
+            fi
+          done
+          [ $fail -eq 0 ] && echo "Marketplace assets verified."
+
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+        with:
+          name: terraform-plan-viewer-${{ env.SEMVER }}
+          path: dist/*.vsix
+          retention-days: 14
+
+      - name: Comment calculated version on PR
+        uses: actions/github-script@v7
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+          MAJOR_MINOR_PATCH: ${{ steps.gitversion.outputs.majorMinorPatch }}
+        with:
+          script: |
+            const semVer = process.env.SEMVER;
+            const mmp = process.env.MAJOR_MINOR_PATCH;
+            const marker = '<!-- gitversion-comment -->';
+            const body = [
+              marker,
+              `**Calculated version**: \`${semVer}\``,
+              '',
+              `If this PR merges into \`main\`, the extension will publish as \`${mmp}\`.`,
+              '',
+              'Bump signals (Conventional Commits prefix on the subject):',
+              '- `feat:` — minor bump',
+              '- `fix:` — patch bump',
+              '- anything else — patch (default)',
+              '',
+              'Override with a footer in the commit body:',
+              '- `+semver: skip` — no version change',
+              '- `+semver: minor` — feature bump',
+              '- `+semver: major` — breaking (avoid while pre-release)',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

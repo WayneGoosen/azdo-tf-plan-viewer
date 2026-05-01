@@ -6,7 +6,7 @@ An extension for Azure DevOps which shows a beautiful UI of Terraform plan outpu
 
 - 📊 **Visual Dashboard**: See at a glance what will be created, updated, deleted, or recreated
 - 🎨 **Color-Coded Display**: Easy-to-understand color coding for different actions
-- 📑 **Custom Tab**: Dedicated "Terraform Plan" tab in your pipeline runs
+- 📑 **Custom Tab**: Dedicated "Plan Review" tab in your pipeline runs
 - 🔍 **Detailed View**: View all resource changes in an organized, readable format
 
 ## Installation
@@ -45,7 +45,7 @@ The binary plan is converted on the agent via `terraform show -json`. If you'd r
 
 ### Step 3: View the Report
 
-After the pipeline runs, open the pipeline run and click the **"Terraform Plan"** tab.
+After the pipeline runs, open the pipeline run and click the **"Plan Review"** tab.
 
 ## Multi-stage pipelines
 
@@ -111,17 +111,16 @@ The testing guide covers:
 - Verifying the extension works correctly
 - Troubleshooting common issues
 
-## Publishing
+## Releasing & Publishing
 
-To publish the extension to the Azure DevOps Marketplace:
+The full release pipeline (CI workflows, GitVersion, marketplace publish) is documented in **[.github/RELEASING.md](.github/RELEASING.md)**:
 
-1. Create a publisher account at https://marketplace.visualstudio.com/manage
-2. Update the `publisher` field in `vss-extension.json`
-3. Package the extension: `npm run package`
-4. Upload the `.vsix` file to the marketplace
-5. Mark as public and submit for review (Microsoft reviews public extensions)
+- One-time setup: creating the Azure DevOps `ADO_PUBLISHER_PAT`, adding it as a GitHub secret, anchoring GitVersion's commit count.
+- Day-to-day flow: how PR / main / publish-to-marketplace workflows fit together.
+- Overriding the version bump via `+semver:` commit footers.
+- Troubleshooting publish failures.
 
-**Note**: See [TESTING.md](TESTING.md) for detailed publishing instructions.
+For first-time manual marketplace upload (before automated publishing is wired), see [TESTING.md](TESTING.md).
 
 ## License
 

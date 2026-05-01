@@ -1,0 +1,23 @@
+# GitVersion config — see https://gitversion.net/docs/reference/configuration
+#
+# Mainline mode means every commit on `main` produces a unique, increasing
+# version. The default per-commit increment is `Patch`; override on a
+# commit-by-commit basis with a footer in the commit message:
+#
+#     +semver: skip   — no version change (chore, docs, CI tweaks)
+#     +semver: patch  — explicit (same as default)
+#     +semver: minor  — new feature
+#     +semver: major  — breaking change (DO NOT USE while next-version is 0.x.x;
+#                       graduating to 1.0.0 is a deliberate manual step)
+#
+# `next-version` is the floor: GitVersion will never produce a version below
+# this. We deliberately stay sub-1.0 during pre-release; bump this manually
+# when graduating to 1.0.0.
+#
+# Anchoring tags: GitVersion in Mainline mode counts commits since the most
+# recent reachable tag. After the FIRST manual marketplace upload, tag the
+# main HEAD with `v<that-version>` (e.g. `git tag v0.0.13 && git push --tags`)
+# so subsequent commits count from that anchor instead of from repo init.
+
+mode: Mainline
+next-version: 0.0.14

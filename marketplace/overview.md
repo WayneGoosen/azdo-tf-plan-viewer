@@ -2,9 +2,9 @@
 
 **Read your Terraform plans like code reviews, not CLI dumps.**
 
-A native **Terraform Plan** tab for Azure DevOps build summaries. The task attaches your `terraform plan` output to the build; the tab renders it as a structured, searchable, themed view — the kind of thing you actually want a teammate to look at before they hit Approve.
+A native **Plan Review** tab for Azure DevOps build summaries. The task attaches your `terraform plan` output to the build; the tab renders it as a structured, searchable, themed view — the kind of thing you actually want a teammate to look at before they hit Approve.
 
-![Terraform Plan tab — overview](images/01-hero-overview.png)
+![Plan Review tab — overview](https://raw.githubusercontent.com/WayneGoosen/azdo-tf-plan-viewer/main/marketplace/images/01-hero-overview.png)
 
 ---
 
@@ -33,7 +33,7 @@ Expand any resource and you see exactly which keys changed, **before → after**
 
 For replaces (`[delete, create]`), the tab surfaces the plan's `replace_paths` — so the question "*why* is this being recreated?" has a one-line answer instead of a guessing game.
 
-![Attribute diff and replace reasons](images/03-replace-reasons.png)
+![Attribute diff and replace reasons](https://raw.githubusercontent.com/WayneGoosen/azdo-tf-plan-viewer/main/marketplace/images/03-replace-reasons.png)
 
 ### Click-to-filter summary
 
@@ -76,7 +76,7 @@ The tab uses the same CSS theme tokens Azure DevOps uses for the rest of the por
     planPath: '$(System.DefaultWorkingDirectory)/tfplan'
 ```
 
-That's it. Run the pipeline; the **Terraform Plan** tab will appear on the build results page.
+That's it. Run the pipeline; the **Plan Review** tab will appear on the build results page.
 
 The task accepts either form of plan:
 

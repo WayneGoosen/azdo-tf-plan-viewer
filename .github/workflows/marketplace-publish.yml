@@ -1,0 +1,58 @@
+name: Publish to Marketplace
+
+# Manual gate. Every push to main creates a GitHub Release with the .vsix
+# attached (see main.yml); this workflow takes one of those releases and
+# publishes it to the Azure DevOps Marketplace via tfx.
+#
+# First-time publish: do it manually via the marketplace web UI to set up the
+# publisher + extension entry. Subsequent updates can use this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. v0.0.14)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download .vsix from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          gh release download "$TAG" --repo "$REPO" --pattern "*.vsix"
+          ls -lh *.vsix
+          # Sanity: only one .vsix expected per release
+          test "$(ls *.vsix | wc -l)" -eq 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install tfx-cli
+        run: npm install -g tfx-cli@^0.23
+
+      - name: Publish to Azure DevOps Marketplace
+        env:
+          ADO_PUBLISHER_PAT: ${{ secrets.ADO_PUBLISHER_PAT }}
+        run: |
+          set -e
+          VSIX=$(ls *.vsix | head -1)
+          echo "Publishing $VSIX to marketplace…"
+          tfx extension publish --vsix "$VSIX" --token "$ADO_PUBLISHER_PAT" --no-color

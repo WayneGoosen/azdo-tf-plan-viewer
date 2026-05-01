@@ -197,13 +197,13 @@ steps:
 1. Create a new pipeline using the YAML above
 2. Run the pipeline
 3. After the pipeline completes, go to the pipeline run details
-4. Look for the **"Terraform Plan"** tab at the top
+4. Look for the **"Plan Review"** tab at the top
 5. Click on it to see the visual report
 
 ### What to Verify
 
 ✅ **Task Execution**: The "Generate Terraform Plan Report" task should complete successfully
-✅ **Tab Display**: The "Terraform Plan" tab should appear in the pipeline run
+✅ **Tab Display**: The "Plan Review" tab should appear in the pipeline run
 ✅ **Report Content**: The report should show:
    - Summary cards with counts (Create, Update, Delete, Recreate)
    - Color-coded resource lists

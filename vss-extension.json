@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "terraform-plan-viewer",
   "name": "Terraform Plan Viewer",
-  "version": "0.0.10",
+  "version": "0.0.13",
   "publisher": "WayneGoosen",
   "targets": [
     {
@@ -77,9 +77,6 @@
     {
       "path": "images",
       "addressable": true
-    },
-    {
-      "path": "marketplace"
     }
   ],
   "contributions": [
@@ -101,7 +98,7 @@
         "ms.vss-build-web.build-results-view"
       ],
       "properties": {
-        "name": "Terraform Plan",
+        "name": "Plan Review",
         "uri": "dist/tab/tab.html",
         "supportsTasks": [
           "a1b2c3d4-e5f6-4a5b-9c8d-7e6f5a4b3c2d"

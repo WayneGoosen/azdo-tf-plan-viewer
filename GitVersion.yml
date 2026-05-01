@@ -1,25 +1,33 @@
-# GitVersion config — see https://gitversion.net/docs/reference/configuration
+# GitVersion 6 — see https://gitversion.net/docs/reference/configuration
 #
-# Targets GitVersion 6 (shipped by gittools/actions@v4.x).
+# Bump rules (in priority order):
+#   1. `+semver: skip|none`           → no bump
+#   2. `+semver: major|breaking`      → major  (DO NOT USE while pre-release)
+#   3. `+semver: minor|feature`       → minor
+#   4. Conventional Commit `feat:`    → minor
+#   5. `+semver: patch|fix`           → patch
+#   6. Conventional Commit `fix:`     → patch
+#   7. anything else                  → patch  (default)
 #
-# TrunkBased workflow: every commit on `main` produces a unique, increasing
-# version. The default per-commit increment is `Patch`; override on a
-# commit-by-commit basis with a footer in the commit message:
-#
-#     +semver: skip   — no version change (chore, docs, CI tweaks)
-#     +semver: patch  — explicit (same as default)
-#     +semver: minor  — new feature
-#     +semver: major  — breaking change (DO NOT USE while next-version is 0.x.x;
-#                       graduating to 1.0.0 is a deliberate manual step)
-#
-# `next-version` is the floor: GitVersion will never produce a version below
-# this. We deliberately stay sub-1.0 during pre-release; bump this manually
-# when graduating to 1.0.0.
+# `next-version` is the floor. Bump it manually when graduating to 1.0.0.
 #
 # Anchoring tags: GitVersion counts commits since the most recent reachable
-# tag. After the FIRST manual marketplace upload, tag the main HEAD with
-# `v<that-version>` (e.g. `git tag v0.0.13 && git push --tags`) so subsequent
-# commits count from that anchor instead of from repo init.
+# tag. After the first manual marketplace upload, tag main HEAD:
+#     git tag v0.0.13 && git push --tags
+# so subsequent commits count from that anchor instead of from repo init.
 
-workflow: TrunkBased/v1
 next-version: 0.0.14
+
+branches:
+  main:
+    mode: ContinuousDeployment
+    increment: Patch
+    label: ''
+
+# Default GitVersion regexes match `+semver: ...` footers. We extend the
+# minor + patch regexes to also recognise Conventional Commits prefixes
+# (`feat:` / `feat(scope):` / `feat!:` → minor, `fix:` / `fix(scope):` → patch).
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)|^feat(\(.+\))?!?:'
+patch-version-bump-message: '\+semver:\s?(fix|patch)|^fix(\(.+\))?!?:'
+no-bump-message: '\+semver:\s?(none|skip)'

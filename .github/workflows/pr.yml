@@ -92,10 +92,15 @@ jobs:
               '',
               `If this PR merges into \`main\`, the extension will publish as \`${mmp}\`.`,
               '',
-              'Override the bump by adding a footer to a commit message:',
+              'Bump signals (Conventional Commits prefix on the subject):',
+              '- `feat:` — minor bump',
+              '- `fix:` — patch bump',
+              '- anything else — patch (default)',
+              '',
+              'Override with a footer in the commit body:',
               '- `+semver: skip` — no version change',
               '- `+semver: minor` — feature bump',
-              '- `+semver: major` — breaking change (avoid while pre-release)',
+              '- `+semver: major` — breaking (avoid while pre-release)',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({

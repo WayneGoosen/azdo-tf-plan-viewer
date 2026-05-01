@@ -95,9 +95,17 @@ After this first manual upload, `marketplace-publish.yml` will work for all futu
 3. Click **Run workflow**.
 4. Watch the run; it'll pull the `.vsix` from the GitHub Release and call `tfx extension publish`.
 
-### Overriding the default patch bump
+### Choosing the bump
 
-In the commit message, add a footer:
+The primary signal is the **Conventional Commits** prefix on the commit subject:
+
+| Prefix | Bump |
+|---|---|
+| `feat:` (or `feat(scope):`) | minor |
+| `fix:` (or `fix(scope):`) | patch |
+| anything else | patch (default) |
+
+For overrides, a `+semver:` footer in the commit body wins over the prefix:
 
 ```
 +semver: skip   ← no version change (chore/docs/CI)

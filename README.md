@@ -1,8 +1,6 @@
 # Azure DevOps Terraform Plan Viewer
 
-[![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/WayneGoosen.terraform-plan-viewer?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/WayneGoosen.terraform-plan-viewer)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
-[![Rating](https://img.shields.io/visual-studio-marketplace/r/WayneGoosen.terraform-plan-viewer)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer&ssr=false#review-details)
+[![Azure DevOps Marketplace](https://img.shields.io/badge/Marketplace-View%20extension-0078D4?logo=visualstudio)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
 [![Main](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml/badge.svg)](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml)
 [![License: MIT](https://img.shields.io/github/license/WayneGoosen/azdo-tf-plan-viewer)](LICENSE)
 

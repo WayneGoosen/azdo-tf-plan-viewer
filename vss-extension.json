@@ -9,6 +9,7 @@
       "id": "Microsoft.VisualStudio.Services"
     }
   ],
+  "public": true,
   "description": "Read your Terraform plans like code reviews — module tree, attribute-level diffs, and replace reasons, right in your Azure DevOps build summary.",
   "categories": [
     "Azure Pipelines"

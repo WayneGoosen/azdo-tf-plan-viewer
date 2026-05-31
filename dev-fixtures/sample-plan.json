@@ -108,6 +108,26 @@
             }
         },
         {
+            "address": "azuread_application_password.deploy",
+            "mode": "managed",
+            "type": "azuread_application_password",
+            "name": "deploy",
+            "provider_name": "registry.terraform.io/hashicorp/azuread",
+            "change": {
+                "actions": ["create"],
+                "before": null,
+                "after": {
+                    "display_name": "deploy-secret",
+                    "end_date": "2027-01-01T00:00:00Z"
+                },
+                "after_unknown": { "id": true, "key_id": true },
+                "before_sensitive": false,
+                "after_sensitive": {
+                    "client_secret": true
+                }
+            }
+        },
+        {
             "address": "module.legacy.azurerm_app_service.old",
             "module_address": "module.legacy",
             "mode": "managed",
@@ -123,6 +143,46 @@
                 "after": null,
                 "before_sensitive": { "app_settings": true },
                 "after_sensitive": false
+            }
+        },
+        {
+            "address": "data.azurerm_client_config.current",
+            "mode": "data",
+            "type": "azurerm_client_config",
+            "name": "current",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": ["read"],
+                "before": null,
+                "after": {
+                    "tenant_id": "00000000-0000-0000-0000-000000000000"
+                },
+                "after_unknown": { "id": true, "object_id": true, "subscription_id": true },
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_log_analytics_workspace.shared",
+            "mode": "managed",
+            "type": "azurerm_log_analytics_workspace",
+            "name": "shared",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": ["no-op"],
+                "before": {
+                    "name": "law-prod-shared",
+                    "sku": "PerGB2018",
+                    "retention_in_days": 30
+                },
+                "after": {
+                    "name": "law-prod-shared",
+                    "sku": "PerGB2018",
+                    "retention_in_days": 30
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
             }
         }
     ],

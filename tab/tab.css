@@ -176,6 +176,7 @@
             cursor: pointer;
         }
         .control-btn:hover { background: var(--plan-bg-elev); }
+        .control-btn.is-active { background: var(--plan-bg-elev); box-shadow: inset 0 0 0 1px var(--plan-accent); }
 
         /* ---- tree ---- */
         .module-node {
@@ -299,21 +300,38 @@
             font-size: 12px;
         }
 
+        /* ---- diff (side-by-side) ----
+           Each resource has its own grid so column widths size to its data.
+           4 tracks: glyph | key | before | after. The two value columns
+           share width equally so before/after stay aligned vertically and
+           the user's eye scans down one column to see what changed. */
         .diff {
             font-family: var(--plan-font-mono);
             font-size: 12px;
             background: var(--plan-bg-elev);
             border: 1px solid var(--plan-border-soft);
             border-radius: 3px;
-            padding: 4px 0;
             margin-top: 6px;
-            /* Grid on the parent so every row shares column tracks. The
-               max-content key column means all values start at a single x
-               position, regardless of key length. */
-            display: grid;
-            grid-template-columns: 18px max-content 1fr;
-            column-gap: 12px;
+            overflow: hidden;
         }
+        .diff-grid {
+            display: grid;
+            grid-template-columns: 18px max-content minmax(0, 1fr) minmax(0, 1fr);
+            column-gap: 12px;
+            padding: 4px 0;
+        }
+        /* Pure create / delete resources collapse to 3 tracks — the missing
+           side would be all em-dashes, so hiding the track removes visual
+           noise and gives the surviving value column more room. */
+        .diff-after-only .diff-grid {
+            grid-template-columns: 18px max-content minmax(0, 1fr);
+        }
+        .diff-after-only .diff-row > .diff-before { display: none; }
+        .diff-before-only .diff-grid {
+            grid-template-columns: 18px max-content minmax(0, 1fr);
+        }
+        .diff-before-only .diff-row > .diff-after { display: none; }
+
         .diff-row {
             display: grid;
             grid-template-columns: subgrid;
@@ -326,15 +344,54 @@
         .diff-add { background: color-mix(in srgb, var(--plan-create) 8%, transparent); }
         .diff-del { background: color-mix(in srgb, var(--plan-delete) 8%, transparent); }
         .diff-mod { background: color-mix(in srgb, var(--plan-update) 6%, transparent); }
+        .diff-eq  { background: transparent; }
         .diff-glyph { font-weight: 700; text-align: center; }
         .diff-add .diff-glyph { color: var(--plan-create); }
         .diff-del .diff-glyph { color: var(--plan-delete); }
         .diff-mod .diff-glyph { color: var(--plan-update); }
         .diff-key { color: var(--plan-text); font-weight: 500; }
-        .diff-arrow { color: var(--plan-text-muted); }
         .diff-before { color: var(--plan-delete); }
         .diff-add .diff-after { color: var(--plan-create); }
         .diff-mod .diff-after { color: var(--plan-create); }
+        .diff-del .diff-before,
+        .diff-add .diff-after,
+        .diff-mod .diff-before,
+        .diff-mod .diff-after { font-weight: 500; }
+        /* "—" placeholders for the absent side of +/− rows: muted so the
+           real value on the other side stands out. */
+        .diff-empty { color: var(--plan-text-muted); }
+
+        .diff-unchanged {
+            border-top: 1px solid var(--plan-border-soft);
+            background: var(--plan-bg);
+        }
+        .diff-unchanged-summary {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+            font-family: var(--plan-font);
+            font-size: 12px;
+            color: var(--plan-text-muted);
+        }
+        .diff-unchanged-summary::-webkit-details-marker { display: none; }
+        .diff-unchanged-caret::before {
+            content: '▸';
+            display: inline-block;
+            transition: transform 0.1s;
+            width: 10px;
+        }
+        details[open] > .diff-unchanged-summary .diff-unchanged-caret::before {
+            transform: rotate(90deg);
+        }
+        .diff-unchanged-summary:hover { color: var(--plan-text); }
+        .diff-grid-unchanged .diff-row { color: var(--plan-text-muted); }
+        .diff-grid-unchanged .diff-key { font-weight: 500; }
+        .diff-grid-unchanged .diff-before { color: var(--plan-text-muted); }
+        .diff-grid-unchanged .diff-eq-after { color: var(--plan-text-muted); opacity: 0.5; }
 
         .no-diff {
             font-size: 12px;

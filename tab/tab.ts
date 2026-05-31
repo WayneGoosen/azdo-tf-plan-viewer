@@ -72,9 +72,14 @@ interface ModuleNode {
 
 interface AttrDiff {
     key: string;
-    kind: '+' | '-' | '~';
+    kind: '+' | '-' | '~' | '=';
     before?: string;
     after?: string;
+}
+
+interface ResourceDiff {
+    changed: AttrDiff[];
+    unchanged: AttrDiff[];
 }
 
 // Loose attachment shape — _links is typed `any` upstream, so we narrow here.
@@ -174,41 +179,168 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
     return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-function computeDiff(change: Change): AttrDiff[] {
-    const before = isPlainObject(change.before) ? change.before : {};
-    const after = isPlainObject(change.after) ? change.after : {};
-    const afterUnknown = isPlainObject(change.after_unknown) ? change.after_unknown : {};
-    const beforeSensitive = isPlainObject(change.before_sensitive) ? change.before_sensitive : {};
-    const afterSensitive = isPlainObject(change.after_sensitive) ? change.after_sensitive : {};
+// Recursive diff walker.
+//
+// Plan attributes can be deeply nested (objects, arrays of blocks like
+// `access_policy = [...]`). Rendering the whole nested value as a single
+// pretty-printed JSON blob makes it impossible to spot the one field that
+// actually changed. Instead, we walk before/after/*_sensitive/after_unknown
+// in parallel and emit one row per leaf path (`tags.owner`,
+// `access_policy[0].permissions`). Sensitive / unknown markers redact at
+// whatever depth Terraform set them.
+function computeDiff(change: Change): ResourceDiff {
+    const out: AttrDiff[] = [];
+    walkDiff(
+        '',
+        change.before,
+        change.after,
+        change.before_sensitive,
+        change.after_sensitive,
+        change.after_unknown,
+        change.before !== undefined,
+        change.after !== undefined,
+        out,
+    );
+    out.sort((a, b) => a.key.localeCompare(b.key));
 
-    const keys = new Set<string>([
-        ...Object.keys(before),
-        ...Object.keys(after),
-        ...Object.keys(afterUnknown),
-    ]);
-
-    const diffs: AttrDiff[] = [];
-    for (const key of [...keys].sort()) {
-        const bExists = key in before;
-        const aExists = (key in after) || afterUnknown[key] === true;
-        const bSens = beforeSensitive[key] === true;
-        const aSens = afterSensitive[key] === true;
-        const aUnknown = afterUnknown[key] === true;
-
-        let kind: '+' | '-' | '~';
-        if (!bExists && aExists) kind = '+';
-        else if (bExists && !aExists) kind = '-';
-        else if (!deepEqual(before[key], after[key])) kind = '~';
-        else continue;
-
-        const beforeStr = kind === '+' ? undefined
-            : (bSens ? '(sensitive)' : formatValue(before[key]));
-        const afterStr = kind === '-' ? undefined
-            : (aUnknown ? '(known after apply)' : (aSens ? '(sensitive)' : formatValue(after[key])));
-
-        diffs.push({ key, kind, before: beforeStr, after: afterStr });
+    // Split into top-level "fully unchanged" vs "has at least one change in
+    // its subtree". The footer only counts top-level attrs so the user's
+    // mental model matches `tf plan`'s `(N unchanged attributes hidden)`.
+    const groups = new Map<string, AttrDiff[]>();
+    for (const e of out) {
+        const top = topKey(e.key);
+        let bucket = groups.get(top);
+        if (!bucket) { bucket = []; groups.set(top, bucket); }
+        bucket.push(e);
     }
-    return diffs;
+
+    const changed: AttrDiff[] = [];
+    const unchanged: AttrDiff[] = [];
+    for (const [top, entries] of groups) {
+        const anyChange = entries.some(e => e.kind !== '=');
+        if (anyChange) {
+            for (const e of entries) if (e.kind !== '=') changed.push(e);
+        } else {
+            // Collapse fully-unchanged top-level attrs back into a single
+            // summary row so the footer reads "name: value", not one row
+            // per deep leaf.
+            unchanged.push(summarizeUnchanged(top, entries));
+        }
+    }
+    return { changed, unchanged };
+}
+
+function topKey(path: string): string {
+    const dot = path.indexOf('.');
+    const bracket = path.indexOf('[');
+    if (dot === -1 && bracket === -1) return path;
+    if (dot === -1) return path.slice(0, bracket);
+    if (bracket === -1) return path.slice(0, dot);
+    return path.slice(0, Math.min(dot, bracket));
+}
+
+function summarizeUnchanged(topKey: string, entries: AttrDiff[]): AttrDiff {
+    // If a single leaf, use it as-is. Otherwise show the top-level value as
+    // "{…}" / "[…]" so the unchanged section stays compact.
+    if (entries.length === 1 && entries[0].key === topKey) return entries[0];
+    const isArr = entries.some(e => e.key.startsWith(`${topKey}[`));
+    const placeholder = isArr ? '[…]' : '{…}';
+    return { key: topKey, kind: '=', before: placeholder, after: placeholder };
+}
+
+function walkDiff(
+    path: string,
+    bRaw: unknown,
+    aRaw: unknown,
+    bSensRaw: unknown,
+    aSensRaw: unknown,
+    aUnkRaw: unknown,
+    bHas: boolean,
+    aHas: boolean,
+    out: AttrDiff[],
+): void {
+    const bSens = bSensRaw === true;
+    const aSens = aSensRaw === true;
+    const aUnk = aUnkRaw === true;
+
+    // Sensitivity / unknown markers at this path stop recursion: Terraform
+    // is telling us "treat this subtree as one opaque value".
+    const canRecurse = !bSens && !aSens && !aUnk;
+
+    const bIsObj = isPlainObject(bRaw);
+    const aIsObj = isPlainObject(aRaw);
+    const bIsArr = Array.isArray(bRaw);
+    const aIsArr = Array.isArray(aRaw);
+
+    // Recurse when both sides have the same container shape, or when one
+    // side is missing and the other is a container (create/delete of a
+    // nested block). Type mismatches (object ↔ scalar) fall through to the
+    // leaf branch so the change is reported as a single replacement row.
+    if (canRecurse && (bIsObj || aIsObj) && !bIsArr && !aIsArr) {
+        const bObj = (bIsObj ? bRaw : {}) as Record<string, unknown>;
+        const aObj = (aIsObj ? aRaw : {}) as Record<string, unknown>;
+        const bSensObj = isPlainObject(bSensRaw) ? bSensRaw : {};
+        const aSensObj = isPlainObject(aSensRaw) ? aSensRaw : {};
+        const aUnkObj = isPlainObject(aUnkRaw) ? aUnkRaw : {};
+        const subKeys = new Set<string>([
+            ...Object.keys(bObj),
+            ...Object.keys(aObj),
+            ...Object.keys(aUnkObj),
+            ...Object.keys(bSensObj),
+            ...Object.keys(aSensObj),
+        ]);
+        for (const k of subKeys) {
+            const childPath = path ? `${path}.${k}` : k;
+            walkDiff(
+                childPath,
+                bObj[k], aObj[k],
+                bSensObj[k], aSensObj[k], aUnkObj[k],
+                k in bObj, k in aObj,
+                out,
+            );
+        }
+        return;
+    }
+
+    if (canRecurse && (bIsArr || aIsArr) && !bIsObj && !aIsObj) {
+        const bArr = (bIsArr ? bRaw : []) as unknown[];
+        const aArr = (aIsArr ? aRaw : []) as unknown[];
+        const bSensArr = Array.isArray(bSensRaw) ? bSensRaw : [];
+        const aSensArr = Array.isArray(aSensRaw) ? aSensRaw : [];
+        const aUnkArr = Array.isArray(aUnkRaw) ? aUnkRaw : [];
+        const len = Math.max(bArr.length, aArr.length);
+        for (let i = 0; i < len; i++) {
+            walkDiff(
+                `${path}[${i}]`,
+                bArr[i], aArr[i],
+                bSensArr[i], aSensArr[i], aUnkArr[i],
+                i < bArr.length, i < aArr.length,
+                out,
+            );
+        }
+        return;
+    }
+
+    // Leaf. Sensitive flags count as presence even when the underlying
+    // value is missing (write-only attributes).
+    const bPresent = bHas || bSens;
+    const aPresent = aHas || aSens || aUnk;
+    if (!bPresent && !aPresent) return;
+
+    let kind: '+' | '-' | '~' | '=';
+    if (!bPresent && aPresent) kind = '+';
+    else if (bPresent && !aPresent) kind = '-';
+    else if (!deepEqual(bRaw, aRaw)) kind = '~';
+    else kind = '=';
+
+    const before = kind === '+' ? undefined
+        : (bSens ? '(sensitive)' : formatValue(bRaw));
+    const after = kind === '-' ? undefined
+        : (aUnk ? '(known after apply)'
+            : aSens ? '(sensitive)'
+            : formatValue(aRaw));
+
+    out.push({ key: path, kind, before, after });
 }
 
 function formatValue(v: unknown): string {
@@ -275,11 +407,16 @@ interface RenderState {
     tree: ModuleNode;
     activeFilters: Set<ActionKind>;
     searchTerm: string;
+    showNoop: boolean;
     treeContainer: HTMLElement;
 }
 
 function matchesFilter(state: RenderState, r: ResourceChange): boolean {
     const kind = classifyAction(r.change.actions);
+    // No-op resources are hidden by default: `terraform show -json` emits one
+    // for every resource in state, so showing them buries the actual changes.
+    // The "show unchanged" toggle flips state.showNoop to reveal them.
+    if (kind === 'noop' && !state.showNoop) return false;
     const filterOk = state.activeFilters.size === 0 || state.activeFilters.has(kind);
     if (!filterOk) return false;
     if (!state.searchTerm) return true;
@@ -300,6 +437,7 @@ export function renderPlan(plan: TerraformPlan, root: HTMLElement) {
         tree,
         activeFilters: new Set(),
         searchTerm: '',
+        showNoop: false,
         treeContainer,
     };
 
@@ -388,9 +526,34 @@ function renderControls(state: RenderState): HTMLElement {
         state.treeContainer.querySelectorAll<HTMLDetailsElement>('details').forEach(d => { d.open = false; });
     });
 
+    const buttons = [expandAll, collapseAll];
+
+    // Only offer the unchanged-resources toggle when the plan actually carries
+    // no-op entries, so the control stays absent on plans that have none.
+    const noopCount = state.tree.counts.noop;
+    if (noopCount > 0) {
+        const noun = noopCount === 1 ? 'unchanged resource' : 'unchanged resources';
+        const noopToggle = el('button', {
+            class: 'control-btn',
+            attrs: { type: 'button', 'aria-pressed': state.showNoop ? 'true' : 'false' },
+        }) as HTMLButtonElement;
+        const syncLabel = () => {
+            noopToggle.textContent = `${state.showNoop ? 'Hide' : 'Show'} ${noopCount} ${noun}`;
+            noopToggle.setAttribute('aria-pressed', state.showNoop ? 'true' : 'false');
+            noopToggle.classList.toggle('is-active', state.showNoop);
+        };
+        noopToggle.addEventListener('click', () => {
+            state.showNoop = !state.showNoop;
+            syncLabel();
+            rerenderTree(state);
+        });
+        syncLabel();
+        buttons.push(noopToggle);
+    }
+
     return el('section', { class: 'controls' }, [
         search,
-        el('div', { class: 'control-buttons' }, [expandAll, collapseAll]),
+        el('div', { class: 'control-buttons' }, buttons),
     ]);
 }
 
@@ -479,9 +642,9 @@ function renderResource(r: ResourceChange): HTMLElement {
         body.appendChild(renderReplaceReasons(replacePaths));
     }
 
-    const diffs = computeDiff(r.change);
-    if (diffs.length) {
-        body.appendChild(renderDiff(diffs));
+    const diff = computeDiff(r.change);
+    if (diff.changed.length || diff.unchanged.length) {
+        body.appendChild(renderDiff(diff, kind));
     } else if (kind !== 'noop') {
         body.appendChild(el('div', { class: 'no-diff', text: 'No attribute-level changes reported.' }));
     }
@@ -503,30 +666,66 @@ function renderReplaceReasons(paths: unknown[][]): HTMLElement {
     ]);
 }
 
-function renderDiff(diffs: AttrDiff[]): HTMLElement {
-    const table = el('div', { class: 'diff' });
-    for (const d of diffs) {
-        const rowClass = d.kind === '+' ? 'diff-add' : d.kind === '-' ? 'diff-del' : 'diff-mod';
-        const row = el('div', { class: `diff-row ${rowClass}` });
-        row.appendChild(el('span', { class: 'diff-glyph', text: d.kind }));
-        row.appendChild(el('span', { class: 'diff-key', text: d.key }));
+function renderDiff(diff: ResourceDiff, kind: ActionKind): HTMLElement {
+    // For pure create/delete resources, hide the empty side so the layout
+    // doesn't get a column of dashes carrying no information.
+    const hideBefore = kind === 'create';
+    const hideAfter = kind === 'delete';
+    const layoutClass = hideBefore ? ' diff-after-only'
+        : hideAfter ? ' diff-before-only' : '';
 
-        // Wrap the value side in a single cell so all rows align in the same
-        // column, regardless of whether they show "before → after" or just one.
-        const value = el('span', { class: 'diff-value' });
-        if (d.kind === '~') {
-            value.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
-            value.appendChild(el('span', { class: 'diff-arrow', text: ' → ' }));
-            value.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
-        } else if (d.kind === '+') {
-            value.appendChild(el('span', { class: 'diff-after', text: d.after ?? '' }));
-        } else {
-            value.appendChild(el('span', { class: 'diff-before', text: d.before ?? '' }));
-        }
-        row.appendChild(value);
-        table.appendChild(row);
+    const wrap = el('div', { class: `diff${layoutClass}` });
+
+    if (diff.changed.length) {
+        wrap.appendChild(renderDiffGrid(diff.changed, /* unchanged */ false));
     }
-    return table;
+
+    if (diff.unchanged.length) {
+        const summary = el('summary', { class: 'diff-unchanged-summary' }, [
+            el('span', { class: 'diff-unchanged-caret' }),
+            el('span', {
+                text: `${diff.unchanged.length} unchanged ${diff.unchanged.length === 1 ? 'attribute' : 'attributes'} hidden`,
+            }),
+        ]);
+        const details = el('details', { class: 'diff-unchanged' });
+        details.appendChild(summary);
+        details.appendChild(renderDiffGrid(diff.unchanged, /* unchanged */ true));
+        wrap.appendChild(details);
+    }
+
+    return wrap;
+}
+
+function renderDiffGrid(rows: AttrDiff[], unchanged: boolean): HTMLElement {
+    const grid = el('div', { class: 'diff-grid' + (unchanged ? ' diff-grid-unchanged' : '') });
+    for (const d of rows) {
+        const rowClass = d.kind === '+' ? 'diff-add'
+            : d.kind === '-' ? 'diff-del'
+            : d.kind === '~' ? 'diff-mod'
+            : 'diff-eq';
+        const row = el('div', { class: `diff-row ${rowClass}` });
+        row.appendChild(el('span', { class: 'diff-glyph', text: d.kind === '=' ? '' : d.kind }));
+        row.appendChild(el('span', { class: 'diff-key', text: d.key }));
+        row.appendChild(renderDiffCell(d.before, 'before', d.kind));
+        row.appendChild(renderDiffCell(d.after, 'after', d.kind));
+        grid.appendChild(row);
+    }
+    return grid;
+}
+
+function renderDiffCell(value: string | undefined, side: 'before' | 'after', kind: AttrDiff['kind']): HTMLElement {
+    const cls = side === 'before' ? 'diff-before' : 'diff-after';
+    // `+` rows have no before, `-` rows have no after — render an em-dash so
+    // the cell still occupies its grid track and the columns stay aligned.
+    if (value === undefined) {
+        return el('span', { class: `${cls} diff-empty`, text: '—' });
+    }
+    // Suppress the redundant repeat in the unchanged section: same value
+    // shows on the left, the right column shows a soft "·" placeholder.
+    if (kind === '=' && side === 'after') {
+        return el('span', { class: `${cls} diff-eq-after`, text: '·' });
+    }
+    return el('span', { class: cls, text: value });
 }
 
 function renderOutputs(outputs: Record<string, OutputChange>): HTMLElement {

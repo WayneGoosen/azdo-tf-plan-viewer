@@ -3,6 +3,15 @@ name: Main
 on:
   push:
     branches: [main]
+    # Doc-only changes must not cut a new version. A push touching ONLY these
+    # paths is skipped; a mixed code+docs push still releases. The docs site has
+    # its own deploy in pages.yml. Use the workflow_dispatch button below to
+    # release manually if ever needed.
+    paths-ignore:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '**.md'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:

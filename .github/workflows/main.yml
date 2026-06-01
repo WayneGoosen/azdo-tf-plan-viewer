@@ -38,15 +38,28 @@ jobs:
         working-directory: buildAndReleaseTask
         run: npm ci
 
-      - name: Stamp calculated version into vss-extension.json
+      - name: Stamp calculated version into extension + task manifests
         env:
           VERSION: ${{ steps.gitversion.outputs.majorMinorPatch }}
         run: |
           set -e
+          # One source of truth: the same M.m.p goes into the extension version
+          # (vss-extension.json) AND the pipeline task version (task.json), so
+          # the marketplace listing and `TerraformPlanViewer@N` never drift.
           echo "Stamping vss-extension.json:version = $VERSION"
           jq --arg v "$VERSION" '.version = $v' vss-extension.json > vss-extension.json.tmp
           mv vss-extension.json.tmp vss-extension.json
           grep -m1 '"version"' vss-extension.json
+
+          MAJOR=${VERSION%%.*}
+          MINOR=${VERSION#*.}; MINOR=${MINOR%%.*}
+          PATCH=${VERSION##*.}
+          echo "Stamping task.json:version = $MAJOR.$MINOR.$PATCH"
+          jq --argjson maj "$MAJOR" --argjson min "$MINOR" --argjson pat "$PATCH" \
+            '.version = {Major: $maj, Minor: $min, Patch: $pat}' \
+            buildAndReleaseTask/task.json > buildAndReleaseTask/task.json.tmp
+          mv buildAndReleaseTask/task.json.tmp buildAndReleaseTask/task.json
+          jq -c '.version' buildAndReleaseTask/task.json
 
       - name: Typecheck task
         run: npx tsc --noEmit

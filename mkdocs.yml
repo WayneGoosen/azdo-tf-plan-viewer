@@ -1,0 +1,67 @@
+site_name: Terraform Plan Viewer
+site_description: A native Plan Review tab for Azure DevOps — render terraform plan output as a structured, searchable diff.
+site_url: https://waynegoosen.github.io/azdo-tf-plan-viewer/
+repo_name: WayneGoosen/azdo-tf-plan-viewer
+repo_url: https://github.com/WayneGoosen/azdo-tf-plan-viewer
+edit_uri: edit/main/docs/
+copyright: Released under the MIT License.
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    # Light / dark toggle
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+
+plugins:
+  - search
+
+# Keep the build-tooling file out of the published site.
+exclude_docs: |
+  requirements.txt
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - Task inputs: task-inputs.md
+  - Version pinning: version-pinning.md
+  - Privacy & security: security.md

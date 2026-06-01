@@ -61,6 +61,34 @@ The task accepts either form of plan:
 - The **binary plan** from `terraform plan -out=tfplan` — the task converts it via `terraform show -json` automatically.
 - The **JSON form** from `terraform show -json tfplan > tfplan.json` — useful if `terraform` isn't on the publishing agent.
 
+## Version pinning
+
+`TerraformPlanViewer@1` references the **major** version and automatically picks
+up the latest minor/patch within major 1 — the recommended form for most
+pipelines, since you get bug fixes without editing YAML.
+
+Azure DevOps also accepts a **complete** version, which some supply-chain and
+SAST policies (e.g. SonarCloud's *"Use complete version number"* hotspot)
+require:
+
+```yaml
+- task: TerraformPlanViewer@1.3.0   # full pin = the version on the Marketplace listing
+```
+
+The task version matches the extension version shown on the
+[Marketplace listing](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
+and in [GitHub Releases](https://github.com/WayneGoosen/azdo-tf-plan-viewer/releases) —
+they're stamped from one source, so the listing number *is* the number you pin.
+
+Two things to know before pinning the full version:
+
+- The exact version must be **installed in your organization**. The extension
+  ships one build per major, so only the latest minor/patch is present. Pinning
+  an older build such as `@1.0.0` resolves to nothing and the pipeline fails
+  with *"task not found"* — use the current version from the listing.
+- A full pin is **not auto-updating**: when a new version publishes you must
+  bump the pin yourself, otherwise you stay on the old build.
+
 ## Multi-stage example
 
 Call the task once per stage with distinct `attachmentName` values:
@@ -109,6 +137,20 @@ npm run dev        # local dev harness — sample plans in dev-fixtures/
 The dev harness drives the production `renderPlans()` path with mock attachments backed by fixture files, so you can iterate on the tab without an ADO build. `?slow=15000` (query string) makes the loading state visible long enough to inspect; `?single=1` exercises the single-plan code path.
 
 For end-to-end testing inside a real Azure DevOps organization, see [TESTING.md](TESTING.md).
+
+## Documentation
+
+User-facing docs are published with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) to GitHub Pages — see **<https://waynegoosen.github.io/azdo-tf-plan-viewer/>**. Source lives in `docs/` and is built/deployed by `.github/workflows/pages.yml` on every push to `main`.
+
+Preview locally:
+
+```bash
+pip install -r docs/requirements.txt
+cp marketplace/images/*.png docs/assets/images/   # staged at build time in CI
+mkdocs serve                                       # http://127.0.0.1:8000
+```
+
+`docs/assets/images/` and `site/` are generated (gitignored); the canonical screenshots live in `marketplace/images/`.
 
 ## Releasing
 

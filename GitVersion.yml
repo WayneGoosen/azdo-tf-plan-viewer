@@ -2,21 +2,31 @@
 #
 # Bump rules (in priority order):
 #   1. `+semver: skip|none`           → no bump
-#   2. `+semver: major|breaking`      → major  (DO NOT USE while pre-release)
+#   2. `+semver: major|breaking`      → major  (BREAKING: forces every pipeline's
+#                                        `TerraformPlanViewer@N` ref to `@N+1`)
 #   3. `+semver: minor|feature`       → minor
 #   4. Conventional Commit `feat:`    → minor
 #   5. `+semver: patch|fix`           → patch
 #   6. Conventional Commit `fix:`     → patch
 #   7. anything else                  → patch  (default)
 #
-# `next-version` is the floor. Bump it manually when graduating to 1.0.0.
+# This single calculated version is stamped into BOTH vss-extension.json
+# (extension/marketplace version) AND buildAndReleaseTask/task.json (pipeline
+# task version) by main.yml, so the two are always identical. The task's MAJOR
+# is what users reference as `TerraformPlanViewer@N`, so a major bump here is a
+# breaking change — see rule 2.
+#
+# `next-version` is the floor. It was raised to 1.3.0 to unify the two version
+# lines: the task was already at 1.2.0 and can't be downgraded, so the synced
+# line starts above it. Bump the floor only when you need to force a number
+# higher than tag-counting would produce.
 #
 # Anchoring tags: GitVersion counts commits since the most recent reachable
 # tag. After the first manual marketplace upload, tag main HEAD:
 #     git tag v0.0.13 && git push --tags
 # so subsequent commits count from that anchor instead of from repo init.
 
-next-version: 0.0.14
+next-version: 1.3.0
 
 branches:
   main:

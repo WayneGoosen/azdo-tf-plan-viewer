@@ -85,6 +85,25 @@ The task accepts either form of plan:
 
 ---
 
+## Version pinning
+
+`TerraformPlanViewer@1` references the **major** version and automatically picks up the latest minor/patch within major 1 — the recommended form for most pipelines, since you get bug fixes without editing YAML.
+
+Azure DevOps also accepts a **complete** version, which some supply-chain and SAST policies (e.g. SonarCloud's *"Use complete version number"* hotspot) require:
+
+```yaml
+- task: TerraformPlanViewer@1.3.0   # full pin = the version shown at the top of this listing
+```
+
+The task version matches the extension version shown at the top of this listing — they're stamped from one source, so the listing number *is* the number you pin.
+
+Before pinning the full version:
+
+- The exact version must be **installed in your organization**. The extension ships one build per major, so only the latest minor/patch is present. Pinning an older build such as `@1.0.0` resolves to nothing and the pipeline fails with *"task not found"* — use the current version from this listing.
+- A full pin is **not auto-updating**: when a new version publishes you must bump the pin yourself.
+
+---
+
 ## Multi-stage example
 
 ```yaml

@@ -12,6 +12,9 @@ tab/**/*.js
 tab/**/*.js.map
 *.tgz
 
+# Generated at CI time by dev-publish.yml — dev overrides with a stamped version
+vss-extension.dev.effective.json
+
 # Local working notes — not part of the published extension
 CLAUDE.md
 tasks/
@@ -22,6 +25,11 @@ tasks/
 
 # Playwright MCP session output (snapshots, console logs, dev screenshots)
 .playwright-mcp/
+
+# MkDocs build output and the screenshots staged into the docs tree at build
+# time (canonical copies live in marketplace/images/).
+site/
+docs/assets/images/
 
 # Scratch screenshots dropped at the repo root during dev/testing.
 # Marketing-ready screenshots live under marketplace/images/ and are tracked.

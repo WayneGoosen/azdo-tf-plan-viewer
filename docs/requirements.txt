@@ -1,0 +1,2 @@
+# Pinned so local previews match the CI build. Bump deliberately.
+mkdocs-material==9.5.39

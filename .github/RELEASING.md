@@ -143,6 +143,7 @@ Cosmetic warnings from `tfx-cli`'s own transitive deps. Ignore unless `tfx exten
 
 ## What's not automated (yet)
 
-- **Task version** (`buildAndReleaseTask/task.json:version`) is still manually bumped. Task Major bumps require sweeping `TerraformPlanViewer@N` references across docs, which is too risky to automate.
+- **Task version** (`buildAndReleaseTask/task.json:version`) is now auto-stamped by `main.yml` from the same GitVersion `majorMinorPatch` as `vss-extension.json`, so the extension and task versions are always identical — no manual bump. The committed values in both files are placeholders the release overwrites.
+- **Major bumps are breaking and still need a manual sweep.** A `+semver: major` footer moves both versions to the next major, which means every `TerraformPlanViewer@N` reference across `README.md`, `marketplace/overview.md`, and `TESTING.md` must be bumped to `@N+1`, and existing user pipelines break until they update. The example full-pin version quoted in the **Version pinning** sections (`@1.3.0`) should track the current major; refresh it when you bump major.
 - **CHANGELOG.md** — not generated. Could layer `git-cliff` / `auto-changelog` on top later.
 - **Pre-release / RC tags** — marketplace doesn't render SemVer pre-release suffixes nicely; we stay on plain `M.m.p` for now.

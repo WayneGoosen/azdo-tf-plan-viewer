@@ -61,6 +61,8 @@ The task accepts either form of plan:
 - The **binary plan** from `terraform plan -out=tfplan` — the task converts it via `terraform show -json` automatically.
 - The **JSON form** from `terraform show -json tfplan > tfplan.json` — useful if `terraform` isn't on the publishing agent.
 
+**OpenTofu** works too. Binary plans are converted with `tofu show -json` when `terraform` isn't on the agent, or set `cliTool: 'tofu'` to always use it.
+
 ## Version pinning
 
 `TerraformPlanViewer@1` references the **major** version and automatically picks
@@ -115,6 +117,7 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 |---|---|---|---|
 | `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
+| `cliTool` | No | CLI used to convert binary plans: `auto` (terraform, then tofu), `terraform`, `tofu`, or a path to a `terraform`/`tofu` binary. Ignored for JSON plans. | `auto` |
 
 ## How it works
 

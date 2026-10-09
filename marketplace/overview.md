@@ -83,6 +83,8 @@ The task accepts either form of plan:
 - A **binary plan** (`terraform plan -out=tfplan`) — converted on the agent via `terraform show -json` automatically.
 - The **JSON form** (`terraform show -json tfplan > tfplan.json`) — useful if you don't have the `terraform` CLI on the publishing agent.
 
+Using **OpenTofu**? Binary plans are converted with `tofu show -json` when `terraform` isn't on the agent, or set `cliTool: 'tofu'` to always use it.
+
 ---
 
 ## Version pinning
@@ -126,7 +128,7 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 
 ## How it works
 
-The task takes your plan file, validates it (binary plans get converted with `terraform show -json`), and uploads the JSON as a build attachment with the type `terraform-plan-viewer.plan`. The tab calls Azure DevOps's Build REST API to download the attachment, parses it client-side, and renders it.
+The task takes your plan file, validates it (binary plans get converted with `terraform show -json` or `tofu show -json`), and uploads the JSON as a build attachment with the type `terraform-plan-viewer.plan`. The tab calls Azure DevOps's Build REST API to download the attachment, parses it client-side, and renders it.
 
 There's no server, no database, no third-party endpoint. Plan data sits in your Azure DevOps organization the same way build logs do.
 
@@ -143,10 +145,10 @@ There's no server, no database, no third-party endpoint. Plan data sits in your 
 ## FAQ
 
 **Do I need the `terraform` CLI on the publishing agent?**
-Only if you pass a **binary** plan. If you've already converted to JSON yourself, no CLI is needed.
+Only if you pass a **binary** plan, and then either `terraform` or `tofu` will do (see the `cliTool` input). If you've already converted to JSON yourself, no CLI is needed.
 
 **Will this work with OpenTofu / Terraform Cloud plans?**
-Yes — anything that emits the standard Terraform plan JSON schema works. The tab doesn't care which CLI produced it.
+Yes — anything that emits the standard Terraform plan JSON schema works. The tab doesn't care which CLI produced it. For binary OpenTofu plans, the task uses `tofu show -json` (automatically if `terraform` isn't installed, or always with `cliTool: 'tofu'`).
 
 **My plan is huge. Will it render?**
 The task supports plans up to 256 MiB. The tab parses and renders client-side; multi-thousand-resource plans render in well under a second on modern laptops.

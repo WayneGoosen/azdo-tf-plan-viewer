@@ -73,6 +73,25 @@ The `marketplace-publish.yml` workflow can only **update** an existing extension
 
 After this first manual upload, `marketplace-publish.yml` will work for all future updates.
 
+### 5. Connect SonarCloud
+
+`pr.yml` runs a SonarCloud analysis on every PR, configured by `sonar-project.properties`
+(organization `waynegoosen-1`, project key `WayneGoosen_azdo-tf-plan-viewer`). To turn it on:
+
+1. In <https://sonarcloud.io>, open the project and set **Administration → Analysis Method**
+   to **CI-based**, not Automatic Analysis. Leaving Automatic on makes the scanner step fail
+   with "you are running manual analysis while Automatic Analysis is enabled".
+2. Create a token (**My Account → Security**) and add it:
+   ```sh
+   gh secret set SONAR_TOKEN --repo WayneGoosen/azdo-tf-plan-viewer
+   ```
+
+Until the secret exists the SonarCloud step **skips itself**, deliberately — `build` must
+never fail because an optional integration is unconfigured.
+
+**Coverage reads 0% and that is expected.** There is no unit test suite yet, so no coverage
+report is sent. Judge the analysis on bugs, code smells and security hotspots for now.
+
 ---
 
 ## Day-to-day flow
@@ -134,6 +153,10 @@ GitVersion has no tag anchor on main and is counting all commits since repo init
 ### Manifest-verification step fails: `Missing Content.Details asset`
 
 Something put the marketplace asset directory back into `vss-extension.json` `files[]`. See `CLAUDE.md` → **Extension Manifest** for the gotcha. Remove the `marketplace` entry from `files[]`.
+
+### `SonarCloud` step fails with "Automatic Analysis is enabled"
+
+The SonarCloud project is still on Automatic Analysis. Switch it to **CI-based** — see [Connect SonarCloud](#5-connect-sonarcloud).
 
 ### `tfx-cli` warns about deprecated dependencies during install
 

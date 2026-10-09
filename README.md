@@ -148,7 +148,7 @@ User-facing docs are published with [Material for MkDocs](https://squidfunk.gith
 Preview locally:
 
 ```bash
-pip install -r docs/requirements.txt
+pip install --only-binary :all: --require-hashes -r docs/requirements.txt
 cp marketplace/images/*.png docs/assets/images/   # staged at build time in CI
 mkdocs serve                                       # http://127.0.0.1:8000
 ```

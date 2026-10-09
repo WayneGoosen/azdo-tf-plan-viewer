@@ -13,6 +13,7 @@
     "install-task-deps": "cd buildAndReleaseTask && npm install --omit=dev && cd .. && cp -r buildAndReleaseTask/node_modules dist/buildAndReleaseTask/",
     "package": "npm run build && tfx extension create --manifest-globs vss-extension.json --output-path dist/",
     "clean": "rimraf dist *.vsix",
+    "typecheck": "tsc --noEmit",
     "typecheck:tab": "tsc --noEmit -p tsconfig.tab.json",
     "dev:prepare": "npm run build:tab && npm run copy-tab-assets && rimraf .dev && copyfiles -u 2 \"dist/tab/**/*\" .dev/ && copyfiles -u 1 \"dev-fixtures/**/*\" .dev/",
     "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html"

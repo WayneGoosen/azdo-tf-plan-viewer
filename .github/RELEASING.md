@@ -86,6 +86,9 @@ After this first manual upload, `marketplace-publish.yml` will work for all futu
    gh secret set SONAR_TOKEN --repo WayneGoosen/azdo-tf-plan-viewer
    ```
 
+Until then the project runs on Automatic Analysis, which reads `.sonarcloud.properties`
+instead of `sonar-project.properties` — keep the sources and exclusions in both files in sync.
+
 Until the secret exists the SonarCloud step **skips itself**, deliberately — `build` must
 never fail because an optional integration is unconfigured.
 

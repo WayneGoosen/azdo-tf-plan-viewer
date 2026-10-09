@@ -119,4 +119,5 @@ async function run() {
     }
 }
 
-run();
+// run() reports its own failures via setResult; this catches anything that escapes.
+run().catch((err) => tl.setResult(tl.TaskResult.Failed, err?.message ?? String(err)));

@@ -733,7 +733,7 @@ function renderOutputs(outputs: Record<string, OutputChange>): HTMLElement {
         el('h2', { text: 'Outputs' }),
     ]);
     const list = el('div', { class: 'outputs-list' });
-    for (const name of Object.keys(outputs).sort()) {
+    for (const name of Object.keys(outputs).sort((a, b) => a.localeCompare(b))) {
         const o = outputs[name];
         const kind = classifyAction(o.actions);
         const row = el('div', { class: 'output-row' }, [

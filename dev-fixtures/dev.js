@@ -29,7 +29,7 @@
 
     // ?slow=N pads each fetch by N ms so the loading skeleton is visible long
     // enough to inspect / screenshot. No effect in production (different fetcher).
-    var slowMs = parseInt(params.get('slow') || '0', 10) || 0;
+    var slowMs = Number.parseInt(params.get('slow') || '0', 10) || 0;
 
     function devFetcher(ref) {
         var fetchP = fetch(ref.__file + '?_=' + Date.now()).then(function (r) {

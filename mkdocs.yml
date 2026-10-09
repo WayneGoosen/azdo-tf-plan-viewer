@@ -59,8 +59,9 @@ markdown_extensions:
 plugins:
   - search
 
-# Keep the build-tooling file out of the published site.
+# Keep the build-tooling files out of the published site.
 exclude_docs: |
+  requirements.in
   requirements.txt
 
 nav:

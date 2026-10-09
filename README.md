@@ -2,6 +2,7 @@
 
 [![Azure DevOps Marketplace](https://img.shields.io/badge/Marketplace-View%20extension-0078D4?logo=visualstudio)](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer)
 [![Main](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml/badge.svg)](https://github.com/WayneGoosen/azdo-tf-plan-viewer/actions/workflows/main.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=WayneGoosen_azdo-tf-plan-viewer&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=WayneGoosen_azdo-tf-plan-viewer)
 [![License: MIT](https://img.shields.io/github/license/WayneGoosen/azdo-tf-plan-viewer)](LICENSE)
 
 > Read your Terraform plans like code reviews, not CLI dumps.

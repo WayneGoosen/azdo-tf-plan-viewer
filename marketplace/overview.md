@@ -145,7 +145,7 @@ There's no server, no database, no third-party endpoint. Plan data sits in your 
 ## FAQ
 
 **Do I need the `terraform` CLI on the publishing agent?**
-Only if you pass a **binary** plan, and then either `terraform` or `tofu` will do (see the `cliTool` input). If you've already converted to JSON yourself, no CLI is needed.
+Only if you pass a **binary** plan. Make the CLI that produced the plan (`terraform` or `tofu`) available on the agent's `PATH`; if both are installed, choose it with the `cliTool` input. If you've already converted to JSON yourself, no CLI is needed.
 
 **Will this work with OpenTofu / Terraform Cloud plans?**
 Yes — anything that emits the standard Terraform plan JSON schema works. The tab doesn't care which CLI produced it. For binary OpenTofu plans, the task uses `tofu show -json` (automatically if `terraform` isn't installed, or always with `cliTool: 'tofu'`).

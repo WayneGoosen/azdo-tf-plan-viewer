@@ -14,46 +14,30 @@ function looksLikeBinaryPlan(buf: Buffer): boolean {
 
 const KNOWN_CLIS = ['terraform', 'tofu'];
 
-// Only terraform/tofu binaries are ever executed, so a cliTool value from an
-// untrusted source (e.g. a queue-time variable) can't run an arbitrary program.
-function isKnownCliBinary(p: string): boolean {
-    const name = path.basename(p).toLowerCase().replace(/\.exe$/, '');
-    return KNOWN_CLIS.includes(name);
-}
-
-// Resolves the CLI used to convert binary plans. 'auto' prefers terraform and
-// falls back to tofu; 'terraform'/'tofu' look up that name on PATH; anything
-// else must be a path to a terraform or tofu binary.
+// Resolves the CLI used to convert binary plans. Only the terraform/tofu found
+// on the agent's PATH is ever run -- cliTool is never treated as a path, so a
+// value from a less trusted source (e.g. a queue-time variable) can't point the
+// task at an arbitrary file. 'auto' prefers terraform and falls back to tofu.
 function resolveCli(cliTool: string): string {
-    if (cliTool === 'auto') {
-        for (const name of KNOWN_CLIS) {
-            const found = tl.which(name, false);
-            if (found) {
-                return found;
-            }
+    if (cliTool !== 'auto' && !KNOWN_CLIS.includes(cliTool)) {
+        throw new Error(`Invalid cliTool "${cliTool}". Use 'auto', 'terraform' or 'tofu'.`);
+    }
+    for (const name of cliTool === 'auto' ? KNOWN_CLIS : [cliTool]) {
+        const found = tl.which(name, false);
+        if (found) {
+            return found;
         }
-        return '';
     }
-    if (KNOWN_CLIS.includes(cliTool)) {
-        return tl.which(cliTool, false);
-    }
-    if (!isKnownCliBinary(cliTool)) {
-        throw new Error(
-            `Invalid cliTool "${cliTool}". Use 'auto', 'terraform', 'tofu', or a path ` +
-            `to a terraform or tofu binary (e.g. /opt/tofu/bin/tofu).`
-        );
-    }
-    return fs.existsSync(cliTool) && fs.statSync(cliTool).isFile() ? cliTool : '';
+    return '';
 }
 
 function convertBinaryPlanToJson(planPath: string, cliTool: string): string {
     const cli = resolveCli(cliTool);
     if (!cli) {
-        const looked = cliTool === 'auto' ? `'terraform' or 'tofu' could not be found on PATH`
-            : KNOWN_CLIS.includes(cliTool) ? `'${cliTool}' could not be found on PATH`
-            : `'${cliTool}' does not exist`;
+        const looked = cliTool === 'auto' ? `'terraform' or 'tofu'` : `'${cliTool}'`;
         throw new Error(
-            `Plan at "${planPath}" is a binary plan, but ${looked}, so it can't be converted. Make the CLI that produced the plan available to the ` +
+            `Plan at "${planPath}" is a binary plan, but ${looked} could not be found on PATH, ` +
+            `so it can't be converted. Make the CLI that produced the plan available to the ` +
             `agent (e.g. a TerraformInstaller step for Terraform, or install OpenTofu on the ` +
             `agent), set the 'cliTool' input, or convert the plan yourself with ` +
             `'terraform show -json' / 'tofu show -json' and pass the resulting JSON file.`

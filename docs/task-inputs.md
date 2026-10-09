@@ -4,7 +4,7 @@
 |---|---|---|---|
 | `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
-| `cliTool` | No | CLI used to convert binary plans: `auto`, `terraform`, `tofu`, or a path to a `terraform`/`tofu` binary. Ignored for JSON plans. | `auto` |
+| `cliTool` | No | CLI used to convert binary plans: `auto`, `terraform`, or `tofu`. Ignored for JSON plans. | `auto` |
 
 ## `planPath`
 
@@ -30,9 +30,15 @@ Only used when `planPath` is a binary plan.
 - `auto` (default) — uses `terraform` if it is on PATH, otherwise `tofu`.
 - `terraform` / `tofu` — use that CLI only. Set `tofu` when both are installed
   but the plan was produced by OpenTofu.
-- Any other value must be a path to a `terraform` or `tofu` binary (e.g.
-  `/opt/tofu/bin/tofu`). Paths to any other program are rejected, so the task
-  never runs an arbitrary executable.
+
+The CLI is always looked up on the `PATH` of the account running the agent;
+`cliTool` doesn't accept a file path, and any other value fails the task. If
+the CLI is installed somewhere else, add its directory to `PATH` in an earlier
+step:
+
+```yaml
+- script: echo "##vso[task.prependpath]/opt/tofu/bin"
+```
 
 ```yaml
 - task: TerraformPlanViewer@1

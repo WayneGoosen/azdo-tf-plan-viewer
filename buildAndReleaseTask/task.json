@@ -41,10 +41,7 @@
         "terraform": "Terraform",
         "tofu": "OpenTofu"
       },
-      "properties": {
-        "EditableOptions": "True"
-      },
-      "helpMarkdown": "CLI used to convert a binary plan via `show -json`. Ignored for JSON plans. `auto` uses `terraform` if it is on PATH, otherwise `tofu`. You can also enter a full path to a `terraform` or `tofu` binary; other programs are rejected."
+      "helpMarkdown": "CLI used to convert a binary plan via `show -json`. Ignored for JSON plans. Only the `terraform` or `tofu` on the agent's PATH is used. `auto` uses `terraform` if it is on PATH, otherwise `tofu`. If both are installed, pick the CLI that produced the plan."
     }
   ],
   "execution": {

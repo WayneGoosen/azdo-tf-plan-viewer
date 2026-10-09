@@ -117,7 +117,7 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 |---|---|---|---|
 | `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
-| `cliTool` | No | CLI used to convert binary plans: `auto` (terraform, then tofu), `terraform`, `tofu`, or a path to a `terraform`/`tofu` binary. Ignored for JSON plans. | `auto` |
+| `cliTool` | No | CLI used to convert binary plans: `auto` (terraform, then tofu), `terraform`, or `tofu`, looked up on the agent's `PATH`. Ignored for JSON plans. | `auto` |
 
 ## How it works
 

@@ -11,6 +11,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # A BOOLEAN, not the secret. A step's own `env:` is applied after its `if:` is
+      # evaluated, so the condition needs something at job scope -- but putting the token
+      # itself here would hand it to every third-party action and npm script in the job.
+      # This exposes only whether it exists.
+      SONAR_CONFIGURED: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,6 +72,14 @@ jobs:
             fi
           done
           [ $fail -eq 0 ] && echo "Marketplace assets verified."
+
+      - name: SonarCloud
+        # Skipped when SONAR_TOKEN is absent -- on forks, and before SonarCloud is
+        # connected. `build` must never fail because an optional integration is unconfigured.
+        if: ${{ env.SONAR_CONFIGURED == 'true' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
 
       - name: Upload .vsix artifact
         uses: actions/upload-artifact@v4

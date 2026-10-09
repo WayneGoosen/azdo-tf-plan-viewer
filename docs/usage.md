@@ -30,6 +30,32 @@ The task accepts either form of plan:
 - The **JSON form** from `terraform show -json tfplan > tfplan.json` — useful if
   `terraform` isn't on the publishing agent.
 
+## OpenTofu
+
+OpenTofu plans work the same way. With the default `cliTool: 'auto'`, the task
+converts binary plans with `terraform` if it's on the agent, otherwise `tofu`.
+If both are installed, set `cliTool: 'tofu'` so the plan is read by the CLI
+that produced it:
+
+```yaml
+- task: Bash@3
+  displayName: 'OpenTofu Plan'
+  inputs:
+    targetType: 'inline'
+    script: |
+      tofu init
+      tofu plan -out=tfplan
+
+- task: TerraformPlanViewer@1
+  displayName: 'Publish OpenTofu Plan'
+  inputs:
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan'
+    cliTool: 'tofu'
+```
+
+`tofu` must be on the `PATH` of the account running the agent. Passing a JSON
+plan (`tofu show -json tfplan > tfplan.json`) needs no CLI at all.
+
 !!! tip "Pinning a version"
     `TerraformPlanViewer@1` tracks the latest 1.x automatically. If your
     security policy requires a complete version number, see

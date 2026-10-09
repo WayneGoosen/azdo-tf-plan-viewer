@@ -4,7 +4,7 @@
   "name": "TerraformPlanViewer",
   "friendlyName": "Terraform Plan Viewer",
   "description": "Attach a Terraform plan to the build so it renders in the Plan Review tab.",
-  "helpMarkdown": "Point this task at the Terraform plan file produced by `terraform plan -out=...`. Either the binary plan or the JSON form (`terraform show -json`) is accepted; if a binary plan is given, the task converts it automatically using the `terraform` CLI on the agent.",
+  "helpMarkdown": "Point this task at the Terraform plan file produced by `terraform plan -out=...`. Either the binary plan or the JSON form (`terraform show -json`) is accepted; if a binary plan is given, the task converts it automatically using the `terraform` or `tofu` CLI on the agent. Works with OpenTofu plans too.",
   "category": "Utility",
   "author": "Terraform Tools",
   "version": {
@@ -20,7 +20,7 @@
       "label": "Terraform plan file",
       "defaultValue": "",
       "required": true,
-      "helpMarkdown": "Path to a Terraform plan. Either form is accepted:\n- The binary file produced by `terraform plan -out=tfplan` (e.g. `$(System.DefaultWorkingDirectory)/tfplan`). The task will convert it via `terraform show -json` automatically — this requires the `terraform` CLI on PATH (running a TerraformInstaller or TerraformTaskV4 step earlier in the pipeline is enough).\n- The JSON form produced by `terraform show -json tfplan > tfplan.json`."
+      "helpMarkdown": "Path to a Terraform plan. Either form is accepted:\n- The binary file produced by `terraform plan -out=tfplan` (e.g. `$(System.DefaultWorkingDirectory)/tfplan`). The task will convert it via `terraform show -json` automatically — this requires the `terraform` (or `tofu`) CLI on PATH (running a TerraformInstaller or TerraformTaskV4 step earlier in the pipeline is enough for Terraform).\n- The JSON form produced by `terraform show -json tfplan > tfplan.json`."
     },
     {
       "name": "attachmentName",
@@ -29,6 +29,19 @@
       "defaultValue": "terraform-plan",
       "required": false,
       "helpMarkdown": "Identifier for the attachment, also used as the label in the tab's plan selector. Use distinct names per stage/environment (e.g. `dev`, `staging`, `prod`) when publishing multiple plans in one build — the tab will show a dropdown to switch between them. Allowed characters: letters, digits, underscore, hyphen."
+    },
+    {
+      "name": "cliTool",
+      "type": "pickList",
+      "label": "CLI for binary plans",
+      "defaultValue": "auto",
+      "required": false,
+      "options": {
+        "auto": "Auto-detect (terraform, then tofu)",
+        "terraform": "Terraform",
+        "tofu": "OpenTofu"
+      },
+      "helpMarkdown": "CLI used to convert a binary plan via `show -json`. Ignored for JSON plans. Only the `terraform` or `tofu` on the agent's PATH is used. `auto` uses `terraform` if it is on PATH, otherwise `tofu`. If both are installed, pick the CLI that produced the plan."
     }
   ],
   "execution": {

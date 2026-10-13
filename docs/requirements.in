@@ -2,4 +2,4 @@
 # Bump deliberately, then regenerate the lock file (docs/requirements.txt):
 #   pip install pip-tools
 #   pip-compile --generate-hashes --strip-extras -o docs/requirements.txt docs/requirements.in
-mkdocs-material==9.5.39
+mkdocs-material==9.7.7

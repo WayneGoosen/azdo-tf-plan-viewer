@@ -36,9 +36,9 @@
     "webpack-cli": "^7.0.2"
   },
   "dependencies": {
-    "azure-devops-extension-api": "^4.270.0",
-    "azure-devops-extension-sdk": "^4.2.0",
-    "azure-pipelines-task-lib": "^5.2.10",
+    "azure-devops-extension-api": "^5.279.1",
+    "azure-devops-extension-sdk": "^5.0.0",
+    "azure-pipelines-task-lib": "^5.281.1",
     "tslib": "^2.8.1"
   }
 }

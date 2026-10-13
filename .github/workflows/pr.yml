@@ -50,6 +50,12 @@ jobs:
       - name: Typecheck tab
         run: npm run typecheck:tab
 
+      - name: Run tests
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
       - name: Build & package
         run: npm run package
 

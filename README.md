@@ -136,9 +136,22 @@ The task uploads the plan JSON as a build attachment under the type `terraform-p
 npm install
 npm run build      # full build: task + tab + package
 npm run dev        # local dev harness — sample plans in dev-fixtures/
+npm test           # run tests with vitest
+npm run lint       # run eslint
 ```
 
 The dev harness drives the production `renderPlans()` path with mock attachments backed by fixture files, so you can iterate on the tab without an ADO build. `?slow=15000` (query string) makes the loading state visible long enough to inspect; `?single=1` exercises the single-plan code path.
+
+### Testing
+
+The project uses [Vitest](https://vitest.dev/) for unit tests. Tests live alongside source files with a `.test.ts` suffix. Run `npm test` to execute all tests, or `npm run test:watch` for watch mode during development.
+
+Tests cover:
+- Plan rendering logic (classification, diff computation, module tree building)
+- Task input validation and binary plan detection
+- Regression tests for known issues
+
+Before submitting a PR, ensure both `npm test` and `npm run lint` pass locally — CI will run both checks.
 
 For end-to-end testing inside a real Azure DevOps organization, see [TESTING.md](TESTING.md).
 

@@ -2,17 +2,9 @@ import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { looksLikeBinaryPlan, VALID_NAME, KNOWN_CLIS } from './validation';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
-const VALID_NAME = /^[A-Za-z0-9_-]+$/;
-
-// Terraform binary plan files are ZIP archives — they always start with the
-// ZIP local-file-header magic bytes "PK\x03\x04". JSON plans never do.
-function looksLikeBinaryPlan(buf: Buffer): boolean {
-    return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
-}
-
-const KNOWN_CLIS = ['terraform', 'tofu'];
 
 // Resolves the CLI used to convert binary plans. Only the terraform/tofu found
 // on the agent's PATH is ever run -- cliTool is never treated as a path, so a

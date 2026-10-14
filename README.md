@@ -146,10 +146,11 @@ The dev harness drives the production `renderPlans()` path with mock attachments
 
 The project uses [Vitest](https://vitest.dev/) for unit tests. Tests live alongside source files with a `.test.ts` suffix. Run `npm test` to execute all tests, or `npm run test:watch` for watch mode during development.
 
-Tests cover:
-- Plan rendering logic (classification, diff computation, module tree building)
+Tests cover the pure business logic extracted into `tab/planLogic.ts` and `buildAndReleaseTask/validation.ts`:
+- Plan classification, diff computation, and module tree building
 - Task input validation and binary plan detection
-- Regression tests for known issues
+- Sample plan fixtures
+- Regression tests for known issues (e.g., #6)
 
 Before submitting a PR, ensure both `npm test` and `npm run lint` pass locally — CI will run both checks.
 

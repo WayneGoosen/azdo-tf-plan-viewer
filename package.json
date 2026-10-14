@@ -16,7 +16,10 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tab": "tsc --noEmit -p tsconfig.tab.json",
     "dev:prepare": "npm run build:tab && npm run copy-tab-assets && rimraf .dev && copyfiles -u 2 \"dist/tab/**/*\" .dev/ && copyfiles -u 1 \"dev-fixtures/**/*\" .dev/",
-    "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html"
+    "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
   },
   "keywords": [
     "azure-devops",
@@ -26,12 +29,18 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^9.17.0",
     "@types/node": "^20.10.0",
+    "@vitest/ui": "^2.1.8",
     "copyfiles": "^2.4.1",
+    "eslint": "^9.39.5",
+    "happy-dom": "^21.0.1",
     "rimraf": "^5.0.5",
     "tfx-cli": "^0.23.1",
     "ts-loader": "^9.5.7",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.17.0",
+    "vitest": "^2.1.8",
     "webpack": "^5.106.2",
     "webpack-cli": "^7.0.2"
   },

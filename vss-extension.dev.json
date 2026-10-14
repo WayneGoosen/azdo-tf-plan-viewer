@@ -1,0 +1,6 @@
+{
+  "publisher": "YOUR-DEV-PUBLISHER-ID",
+  "id": "terraform-plan-viewer-dev",
+  "name": "Terraform Plan Viewer (Dev)",
+  "public": false
+}

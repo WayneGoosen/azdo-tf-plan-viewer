@@ -15,6 +15,9 @@ tab/**/*.js.map
 # Generated at CI time by dev-publish.yml — dev overrides with a stamped version
 vss-extension.dev.effective.json
 
+# Local dev override file with personal publisher ID
+vss-extension.dev.local.json
+
 # Local working notes — not part of the published extension
 CLAUDE.md
 tasks/

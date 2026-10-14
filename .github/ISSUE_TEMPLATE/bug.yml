@@ -1,0 +1,102 @@
+name: Bug Report
+description: Report a problem with the Azure DevOps Terraform Plan Viewer extension
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Security Warning
+        **Do not paste secrets, tokens, or unredacted plans!**
+        
+        Always sanitize your plan JSON before submitting. Remove:
+        - Access tokens, API keys, passwords
+        - Sensitive resource names or identifiers
+        - Internal URLs or infrastructure details
+        
+        If you're unsure, redact anything that looks sensitive.
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension Version
+      description: Which version of the Azure DevOps Terraform Plan Viewer extension are you using?
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform/OpenTofu Version
+      description: Which version of Terraform or OpenTofu are you using?
+      placeholder: e.g., Terraform 1.5.0 or OpenTofu 1.6.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent-type
+    attributes:
+      label: Agent Type
+      description: Are you using a Microsoft-hosted or self-hosted agent?
+      options:
+        - Microsoft-hosted
+        - Self-hosted
+    validations:
+      required: true
+
+  - type: input
+    id: agent-os
+    attributes:
+      label: Agent OS
+      description: What operating system is the agent running?
+      placeholder: e.g., ubuntu-latest, windows-2022, macOS-12
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is and what you expected to happen.
+      placeholder: When I run the plan viewer task, I see...
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan-snippet
+    attributes:
+      label: Sanitized Plan JSON Snippet
+      description: |
+        A **sanitized** snippet of your plan JSON that reproduces the problem.
+        Remember: Remove all secrets, tokens, and sensitive data!
+      placeholder: |
+        {
+          "format_version": "1.2",
+          "terraform_version": "1.5.0",
+          "resource_changes": [
+            ...
+          ]
+        }
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Configure the task with...
+        2. Run the pipeline...
+        3. See error...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, logs, or screenshots about the problem
+    validations:
+      required: false

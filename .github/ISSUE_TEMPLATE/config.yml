@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://waynegoosen.com/azdo-tf-plan-viewer/
+    about: Read the documentation for setup guides, examples, and troubleshooting

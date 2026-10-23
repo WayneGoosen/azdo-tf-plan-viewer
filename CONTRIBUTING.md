@@ -4,7 +4,7 @@ Thank you for your interest in contributing! This guide will help you set up you
 
 ## Prerequisites
 
-- **Node.js** version 20 or higher (check with `node --version`)
+- **Node.js** version 20.9 or higher (check with `node --version`)
   - Use the version specified in `.nvmrc`: `20`
   - If you use [nvm](https://github.com/nvm-sh/nvm), run `nvm use` in the project root
 - **npm** (comes with Node.js)

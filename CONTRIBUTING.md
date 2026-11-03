@@ -1,111 +1,230 @@
-# Contributing to Azure DevOps Terraform Plan Viewer
+# Contributing to Terraform Plan Viewer
 
-Thank you for considering contributing to this project! This guide will help you get started.
+Thank you for your interest in contributing! This guide will help you set up your development environment, test changes locally, and submit a pull request.
 
-## Development Setup
+## Prerequisites
 
-1. Fork and clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Make your changes
-4. Test your changes locally
+- **Node.js** version 24 or higher (check with `node --version`)
+  - Use the version specified in `.nvmrc`: `24`
+  - If you use [nvm](https://github.com/nvm-sh/nvm), run `nvm use` in the project root
+- **npm** (comes with Node.js)
+- **tfx-cli** (Azure DevOps extension packaging tool)
+  - Install globally: `npm install -g tfx-cli`
 
-## Before Submitting a PR
+## Getting Started
 
-Before submitting a pull request, make sure the following commands pass:
+### 1. Fork, Clone, and Install Dependencies
+
+Fork the repository on GitHub first, then clone **your fork**. That way `origin` is a remote you can push to. Add the upstream repo so you can keep `main` in sync.
 
 ```bash
-npm test           # Run unit tests
-npm run lint       # Run ESLint
-npm run typecheck  # TypeScript type checking for task
-npm run typecheck:tab  # TypeScript type checking for tab
-npm run build      # Full build (includes packaging)
+# Clone your fork (replace <your-username> with your GitHub username)
+git clone https://github.com/<your-username>/azdo-tf-plan-viewer.git
+cd azdo-tf-plan-viewer
+
+# Track the upstream repository and sync main
+git remote add upstream https://github.com/WayneGoosen/azdo-tf-plan-viewer.git
+git fetch upstream
+git checkout main
+git merge upstream/main
+
+# Install root dependencies
+npm ci
+
+# Install task dependencies
+cd buildAndReleaseTask && npm ci && cd ..
 ```
 
-All of these checks run automatically on every PR via GitHub Actions.
+> **Note**: Use `npm ci` instead of `npm install` for reproducible builds matching lockfile versions.
 
-## Testing
+### 2. Build the Extension
 
-We use [Vitest](https://vitest.dev/) for unit testing. Tests are located alongside the source files with a `.test.ts` suffix.
-
-To run tests:
 ```bash
-npm test              # Run all tests once
-npm run test:watch    # Run tests in watch mode
+npm run build
 ```
 
-When adding new features or fixing bugs:
-- Add unit tests to cover your changes
-- Ensure all existing tests still pass
-- For bug fixes, consider adding a regression test
+This command:
+- Cleans previous builds
+- Compiles TypeScript for the task (`npm run build:task`)
+- Bundles the tab UI with webpack (`npm run build:tab`)
+- Copies static assets (JSON, HTML, CSS, PNG)
+- Installs production dependencies in `dist/buildAndReleaseTask/`
 
-## Linting
+`npm run build` does **not** create the `.vsix`. Use `npm run package` for a production package, or the [dev publisher override](#using-a-dev-publisher-recommended) for a private install.
 
-We use [ESLint](https://eslint.org/) with TypeScript support. Run:
+### 3. Run Type Checks
+
 ```bash
-npm run lint
+npm run typecheck       # Check task code
+npm run typecheck:tab   # Check tab code
 ```
 
-The linter enforces code style and catches common mistakes.
+### 4. Run Tests and Lint
+
+```bash
+npm test           # Unit tests (Vitest)
+npm run lint       # ESLint
+```
+
+Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`). Use `npm run test:watch` while iterating.
+
+When adding features or fixing bugs, add coverage for the change. Bug fixes should include a regression test where practical.
 
 ## Local Development
 
-To iterate on the tab UI locally without deploying to Azure DevOps:
+### Dev Harness
+
+Test the tab UI locally without packaging the extension:
+
 ```bash
 npm run dev
 ```
 
-This starts a local dev server at `http://localhost:8080` that renders sample plans from `dev-fixtures/`. The dev harness uses the same production rendering code, so what you see locally matches what users will see in Azure DevOps.
+This command:
+1. Builds the tab UI
+2. Copies assets and fixtures to `.dev/`
+3. Serves the content on **http://localhost:8080**
+4. Automatically opens `/dev.html` in your browser
 
-Query string options:
-- `?slow=15000` — delays loading to test loading states
-- `?single=1` — tests single-plan UI (hides dropdown)
+The dev harness loads sample Terraform plans from `dev-fixtures/` so you can iterate on the UI quickly.
 
-## Commit Messages
+## Testing in Azure DevOps
 
-We use [Conventional Commits](https://www.conventionalcommits.org/) for automated versioning:
+To test the full extension (task + tab) in a real Azure DevOps organization, follow the steps in [TESTING.md](./TESTING.md).
 
-- `feat:` — minor version bump (new features)
-- `fix:` — patch version bump (bug fixes)
-- Other prefixes — patch bump by default
+### Using a Dev Publisher (Recommended)
 
-You can override the bump with a footer:
+Instead of editing `vss-extension.json` directly (which risks committing your publisher ID), use the dev override file:
+
+1. **Copy the template**:
+   ```bash
+   cp vss-extension.dev.json vss-extension.dev.local.json
+   ```
+
+2. **Edit `vss-extension.dev.local.json`** with your dev publisher:
+   ```json
+   {
+     "publisher": "your-dev-publisher",
+     "id": "terraform-plan-viewer-dev",
+     "name": "Terraform Plan Viewer (Dev)",
+     "public": false
+   }
+   ```
+
+3. **Package with overrides** (do not run `npm run package` — that uses the committed production manifest):
+   ```bash
+   npm run build
+   tfx extension create --manifest-globs vss-extension.json --overrides-file vss-extension.dev.local.json --output-path dist/
+   ```
+
+4. **Upload the `.vsix`** to your dev publisher at https://marketplace.visualstudio.com/manage
+   - Click **+ New extension** → **Azure DevOps** and upload the file
+   - Keep the extension **Private** (the override sets `"public": false`)
+
+5. **Share it with your Azure DevOps organization**:
+   - Open the uploaded extension on the marketplace manage page
+   - Click **Share/Unshare**, enter your organization name, and click **Share**
+
+6. **Install it in the organization**:
+   - Go to `https://dev.azure.com/your-org`
+   - **Organization settings** (gear icon) → **Extensions** → **Shared**
+   - Find **Terraform Plan Viewer (Dev)** and click **Install**
+
+> **Note**: `vss-extension.dev.local.json` is gitignored, so you won't accidentally commit your dev publisher. Never edit `vss-extension.json` for local testing. The override template does not set `version`, so the first upload inherits the version from `vss-extension.json`. For later uploads, set `version` in `vss-extension.dev.local.json` to something greater than the version you last uploaded (for example, `1.3.1` after `1.3.0`). Do not use `tfx --rev-version`; it rewrites the committed manifest.
+
+See [TESTING.md](./TESTING.md) for complete instructions, including creating a test pipeline and iterating on a private install.
+
+## Commit Style
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/):
+
+- **`feat:`** — A new feature (triggers minor version bump)
+- **`fix:`** — A bug fix (triggers patch version bump)
+- **`docs:`** — Documentation changes
+- **`chore:`** — Maintenance tasks (dependencies, tooling)
+- **`refactor:`** — Code changes that neither fix bugs nor add features
+- **`test:`** — Adding or updating tests
+- **`ci:`** — CI/CD configuration changes
+
+### Examples
+
+```
+feat: add support for Terraform 1.7 plan format
+fix: handle empty resource_changes array
+docs: update CONTRIBUTING.md with dev workflow
+chore(deps): bump azure-devops-extension-sdk to 4.3.0
+```
+
+### Version Overrides
+
+GitVersion automatically calculates the next version based on commit messages. You can override with a footer in the commit body:
+
 - `+semver: skip` — no version change
-- `+semver: minor` — force minor
-- `+semver: major` — force major
+- `+semver: minor` — force minor bump
+- `+semver: major` — force major bump (use sparingly)
 
-Example:
+## Pull Request Workflow
+
+1. **Sync with upstream and branch** from `main`:
+   ```bash
+   git fetch upstream
+   git checkout main
+   git merge upstream/main
+   git checkout -b my-feature-branch
+   ```
+
+2. **Make your changes**, then confirm `npm test`, `npm run lint`, `npm run typecheck`, `npm run typecheck:tab`, and `npm run build` pass. Commit following Conventional Commits.
+
+3. **Push to your fork** (`origin` is your fork, not upstream):
+   ```bash
+   git push -u origin my-feature-branch
+   ```
+
+4. **Open a Pull Request** from your fork against `WayneGoosen/azdo-tf-plan-viewer`'s `main` branch
+
+### CI Checks
+
+When you open a PR, the [`pr.yml` workflow](./.github/workflows/pr.yml) runs automatically:
+
+- ✅ **Typecheck** — `npm run typecheck` and `npm run typecheck:tab`
+- ✅ **Tests** — `npm test`
+- ✅ **Lint** — `npm run lint`
+- ✅ **Build** — `npm run package` produces a `.vsix`
+- ✅ **Marketplace assets verification** — ensures Content.Details, Screenshots, and Icons are bundled correctly
+- ✅ **GitVersion** — calculates the next semantic version based on commits
+- ✅ **SonarCloud** (optional) — static analysis if configured
+
+A bot will comment on your PR with the calculated version (e.g., `1.4.0-my-feature-branch.1`).
+
+All checks must pass before merging.
+
+## Project Structure
+
 ```
-feat: add multi-stage plan selector
-
-Allows publishing multiple plans per build (dev/staging/prod)
-and switching between them in a dropdown.
-
-Closes #123
+azdo-tf-plan-viewer/
+├── buildAndReleaseTask/     # Azure Pipelines task (Node.js)
+│   ├── task.json            # Task manifest
+│   ├── index.ts             # Task entry point
+│   ├── validation.ts        # Pure input-validation helpers
+│   └── index.test.ts        # Task unit tests
+├── tab/                     # Build results tab (browser UI)
+│   ├── tab.html
+│   ├── tab.ts               # Tab entry point
+│   ├── planLogic.ts         # Pure plan classification / diff / tree
+│   └── tab.test.ts          # Plan-logic unit tests
+├── eslint.config.js         # ESLint flat config (4-space indent)
+├── vitest.config.ts         # Vitest config
+├── dev-fixtures/            # Sample plans for local dev
+├── dist/                    # Build output (gitignored)
+├── vss-extension.json       # Main extension manifest
+├── vss-extension.dev.json   # Dev override template (copy to *.local.json)
+├── package.json             # Root build scripts
+└── TESTING.md               # Full Azure DevOps testing guide
 ```
-
-## Pull Request Process
-
-1. Create a feature branch from `main`
-2. Make your changes
-3. Ensure tests and lint pass
-4. Commit with conventional commit messages
-5. Push to your fork
-6. Open a pull request against `main`
-
-The PR build will:
-- Run all tests and linting
-- Type-check both task and tab code
-- Build and package the extension
-- Calculate the next version number
-- Post the version calculation as a comment
 
 ## Questions?
 
-If you have questions or need help, feel free to:
-- Open an issue for discussion
-- Ask in your PR
+- **Bug reports and feature requests**: [GitHub Issues](https://github.com/WayneGoosen/azdo-tf-plan-viewer/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/WayneGoosen/azdo-tf-plan-viewer/discussions) (if enabled)
 
-We're here to help!
+Thank you for contributing! 🚀

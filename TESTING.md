@@ -6,25 +6,25 @@ This guide explains how to test the Terraform Plan Viewer extension in your Azur
 
 1. An Azure DevOps organization (you can create a free one at https://dev.azure.com)
 2. A project in your Azure DevOps organization
-3. Node.js and npm installed locally
-4. The extension packaged as a `.vsix` file
+3. Node.js 24 or higher and npm installed locally (see [CONTRIBUTING.md](./CONTRIBUTING.md) and `.nvmrc`)
+4. **tfx-cli** (`npm install -g tfx-cli`)
 
-## Step 1: Build and Package the Extension
+## Step 1: Build the Extension
+
+Use `npm ci` (not `npm install`) so lockfile versions match CI. If you do not already have a local clone, follow the fork-and-clone steps in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ```bash
-# Clone the repository (if not already done)
-git clone https://github.com/WayneGoosen/azdo-tf-plan-viewer.git
 cd azdo-tf-plan-viewer
 
 # Install dependencies
-npm install
-cd buildAndReleaseTask && npm install && cd ..
+npm ci
+cd buildAndReleaseTask && npm ci && cd ..
 
-# Build and package
-npm run package
+# Build
+npm run build
 ```
 
-This will create a `.vsix` file in the `dist` directory (e.g., `terraform-tools.terraform-plan-viewer-1.0.0.vsix`).
+Do **not** run `npm run package` for local testing. That command packages the committed production `vss-extension.json`. Use the override file in the next steps so you never edit the main manifest.
 
 ## Step 2: Create a Publisher (if you don't have one)
 
@@ -36,25 +36,32 @@ This will create a `.vsix` file in the `dist` directory (e.g., `terraform-tools.
    - **Display name**: A friendly name for your publisher
 5. Click **Create**
 
-## Step 3: Update the Extension Manifest
+## Step 3: Create a Local Override and Package
 
-Before uploading, update the `publisher` field in `vss-extension.json` to match your publisher ID:
+Do **not** edit `vss-extension.json`. Copy the template and put your publisher ID in a gitignored override file:
+
+```bash
+cp vss-extension.dev.json vss-extension.dev.local.json
+```
+
+Edit `vss-extension.dev.local.json`:
 
 ```json
 {
   "publisher": "your-publisher-id",
-  "id": "terraform-plan-viewer",
-  "name": "Terraform Plan Viewer",
-  "version": "1.0.0",
-  ...
+  "id": "terraform-plan-viewer-dev",
+  "name": "Terraform Plan Viewer (Dev)",
+  "public": false
 }
 ```
 
-After updating, rebuild the package:
+Package with the override file:
 
 ```bash
-npm run package
+tfx extension create --manifest-globs vss-extension.json --overrides-file vss-extension.dev.local.json --output-path dist/
 ```
+
+This creates a `.vsix` in `dist/` using your dev publisher, without changing the committed manifest. The override template does not set `version`, so the first upload inherits the version from `vss-extension.json`.
 
 ## Step 4: Upload the Extension as Private
 
@@ -78,7 +85,7 @@ npm run package
 2. Click on the **Organization settings** (gear icon in bottom left)
 3. Under **General**, click **Extensions**
 4. Click **Shared** tab to see extensions shared with your organization
-5. Find **Terraform Plan Viewer** and click **Install**
+5. Find **Terraform Plan Viewer (Dev)** (or the `name` you set in the override file) and click **Install**
 6. Select the organization where you want to install it
 7. Click **Install**
 
@@ -234,19 +241,25 @@ If the tab appears but the report doesn't load:
 
 ## Step 9: Iterate and Update
 
-When making changes:
+When making changes, keep using the override file. Do **not** edit `vss-extension.json`. Do **not** use `tfx --rev-version`; it rewrites the committed manifest.
 
-1. Update the version in `vss-extension.json`:
+The first upload uses the `version` from `vss-extension.json` because the override omits `version`. The Marketplace then rejects a re-upload of that same version.
+
+1. Bump `version` in `vss-extension.dev.local.json` to something **greater than the version you last uploaded** (for example, `1.3.1` if the first upload inherited `1.3.0`). Do not lower it.
    ```json
    {
-     "version": "1.0.1",
-     ...
+     "publisher": "your-publisher-id",
+     "id": "terraform-plan-viewer-dev",
+     "name": "Terraform Plan Viewer (Dev)",
+     "public": false,
+     "version": "1.3.1"
    }
    ```
 
-2. Rebuild and package:
+2. Rebuild and package with the override file:
    ```bash
-   npm run package
+   npm run build
+   tfx extension create --manifest-globs vss-extension.json --overrides-file vss-extension.dev.local.json --output-path dist/
    ```
 
 3. Upload the new version:

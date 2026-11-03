@@ -13,11 +13,20 @@ Thank you for your interest in contributing! This guide will help you set up you
 
 ## Getting Started
 
-### 1. Clone and Install Dependencies
+### 1. Fork, Clone, and Install Dependencies
+
+Fork the repository on GitHub first, then clone **your fork**. That way `origin` is a remote you can push to. Add the upstream repo so you can keep `main` in sync.
 
 ```bash
-git clone https://github.com/WayneGoosen/azdo-tf-plan-viewer.git
+# Clone your fork (replace <your-username> with your GitHub username)
+git clone https://github.com/<your-username>/azdo-tf-plan-viewer.git
 cd azdo-tf-plan-viewer
+
+# Track the upstream repository and sync main
+git remote add upstream https://github.com/WayneGoosen/azdo-tf-plan-viewer.git
+git fetch upstream
+git checkout main
+git merge upstream/main
 
 # Install root dependencies
 npm ci
@@ -89,17 +98,28 @@ Instead of editing `vss-extension.json` directly (which risks committing your pu
    }
    ```
 
-3. **Package with overrides**:
+3. **Package with overrides** (do not run `npm run package` — that uses the committed production manifest):
    ```bash
    npm run build
    tfx extension create --manifest-globs vss-extension.json --overrides-file vss-extension.dev.local.json --output-path dist/
    ```
 
 4. **Upload the `.vsix`** to your dev publisher at https://marketplace.visualstudio.com/manage
+   - Click **+ New extension** → **Azure DevOps** and upload the file
+   - Keep the extension **Private** (the override sets `"public": false`)
 
-> **Note**: `vss-extension.dev.local.json` is gitignored, so you won't accidentally commit your dev publisher.
+5. **Share it with your Azure DevOps organization**:
+   - Open the uploaded extension on the marketplace manage page
+   - Click **Share/Unshare**, enter your organization name, and click **Share**
 
-See [TESTING.md](./TESTING.md) for complete instructions on installing and testing the extension in your Azure DevOps organization.
+6. **Install it in the organization**:
+   - Go to `https://dev.azure.com/your-org`
+   - **Organization settings** (gear icon) → **Extensions** → **Shared**
+   - Find **Terraform Plan Viewer (Dev)** and click **Install**
+
+> **Note**: `vss-extension.dev.local.json` is gitignored, so you won't accidentally commit your dev publisher. Never edit `vss-extension.json` for local testing.
+
+See [TESTING.md](./TESTING.md) for complete instructions, including creating a test pipeline.
 
 ## Commit Style
 
@@ -132,19 +152,22 @@ GitVersion automatically calculates the next version based on commit messages. Y
 
 ## Pull Request Workflow
 
-1. **Fork and branch** from `main`:
+1. **Sync with upstream and branch** from `main`:
    ```bash
+   git fetch upstream
+   git checkout main
+   git merge upstream/main
    git checkout -b my-feature-branch
    ```
 
 2. **Make your changes**, commit following Conventional Commits
 
-3. **Push to your fork**:
+3. **Push to your fork** (`origin` is your fork, not upstream):
    ```bash
    git push -u origin my-feature-branch
    ```
 
-4. **Open a Pull Request** against `main`
+4. **Open a Pull Request** from your fork against `WayneGoosen/azdo-tf-plan-viewer`'s `main` branch
 
 ### CI Checks
 

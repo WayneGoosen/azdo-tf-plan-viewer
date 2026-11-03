@@ -12,6 +12,7 @@
     "Minor": 3,
     "Patch": 0
   },
+  "minimumAgentVersion": "4.248.0",
   "instanceNameFormat": "Publish Terraform plan",
   "inputs": [
     {
@@ -46,6 +47,9 @@
   ],
   "execution": {
     "Node20_1": {
+      "target": "index.js"
+    },
+    "Node24": {
       "target": "index.js"
     }
   }

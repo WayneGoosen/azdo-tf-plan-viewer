@@ -159,6 +159,9 @@ Yes. All colors use ADO's theme tokens with safe fallbacks.
 **Can I use this with classic (non-YAML) build pipelines?**
 Yes — the task and tab are both surfaced through the standard build results view, which works in classic and YAML pipelines.
 
+**Which Node.js version does the task use?**
+The task declares the Node 24 handler (with Node 20 as a fallback). Microsoft-hosted agents and self-hosted agents 4.265.1+ run it on Node 24. Agents that only include Node 20 (4.248.0+) keep working on that handler.
+
 ---
 
 ## Source, issues, contributions

@@ -85,9 +85,7 @@ the first is selected by default.
 ## Agent runtime
 
 The task runs on the agent's **Node.js 24** handler, with **Node.js 20** kept
-as a fallback for older agents. Microsoft-hosted agents and self-hosted agents
-4.265.1 or later use Node 24. Agents 4.248.0 or later that only include Node 20
-continue to work.
+as a fallback for older agents.
 
 ## How it works
 

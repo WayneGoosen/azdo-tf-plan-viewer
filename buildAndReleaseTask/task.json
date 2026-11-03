@@ -12,7 +12,6 @@
     "Minor": 3,
     "Patch": 0
   },
-  "minimumAgentVersion": "4.248.0",
   "instanceNameFormat": "Publish Terraform plan",
   "inputs": [
     {

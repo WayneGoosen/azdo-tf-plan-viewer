@@ -61,7 +61,7 @@ Package with the override file:
 tfx extension create --manifest-globs vss-extension.json --overrides-file vss-extension.dev.local.json --output-path dist/
 ```
 
-This creates a `.vsix` in `dist/` using your dev publisher, without changing the committed manifest.
+This creates a `.vsix` in `dist/` using your dev publisher, without changing the committed manifest. The override template does not set `version`, so the first upload inherits the version from `vss-extension.json`.
 
 ## Step 4: Upload the Extension as Private
 
@@ -241,16 +241,18 @@ If the tab appears but the report doesn't load:
 
 ## Step 9: Iterate and Update
 
-When making changes, keep using the override file. Do **not** edit `vss-extension.json`.
+When making changes, keep using the override file. Do **not** edit `vss-extension.json`. Do **not** use `tfx --rev-version`; it rewrites the committed manifest.
 
-1. If the marketplace rejects a re-upload of the same version, bump `version` in `vss-extension.dev.local.json`:
+The first upload uses the `version` from `vss-extension.json` because the override omits `version`. The Marketplace then rejects a re-upload of that same version.
+
+1. Bump `version` in `vss-extension.dev.local.json` to something **greater than the version you last uploaded** (for example, `1.3.1` if the first upload inherited `1.3.0`). Do not lower it.
    ```json
    {
      "publisher": "your-publisher-id",
      "id": "terraform-plan-viewer-dev",
      "name": "Terraform Plan Viewer (Dev)",
      "public": false,
-     "version": "0.0.2"
+     "version": "1.3.1"
    }
    ```
 

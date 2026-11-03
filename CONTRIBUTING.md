@@ -117,9 +117,9 @@ Instead of editing `vss-extension.json` directly (which risks committing your pu
    - **Organization settings** (gear icon) → **Extensions** → **Shared**
    - Find **Terraform Plan Viewer (Dev)** and click **Install**
 
-> **Note**: `vss-extension.dev.local.json` is gitignored, so you won't accidentally commit your dev publisher. Never edit `vss-extension.json` for local testing.
+> **Note**: `vss-extension.dev.local.json` is gitignored, so you won't accidentally commit your dev publisher. Never edit `vss-extension.json` for local testing. The override template does not set `version`, so the first upload inherits the version from `vss-extension.json`. For later uploads, set `version` in `vss-extension.dev.local.json` to something greater than the version you last uploaded (for example, `1.3.1` after `1.3.0`). Do not use `tfx --rev-version`; it rewrites the committed manifest.
 
-See [TESTING.md](./TESTING.md) for complete instructions, including creating a test pipeline.
+See [TESTING.md](./TESTING.md) for complete instructions, including creating a test pipeline and iterating on a private install.
 
 ## Commit Style
 

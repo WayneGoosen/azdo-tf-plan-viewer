@@ -2,7 +2,7 @@ import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { looksLikeBinaryPlan, VALID_NAME, KNOWN_CLIS } from './validation';
+import { looksLikeBinaryPlan, validateAttachmentName, validateCliTool, KNOWN_CLIS } from './validation';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
@@ -11,7 +11,7 @@ const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 // value from a less trusted source (e.g. a queue-time variable) can't point the
 // task at an arbitrary file. 'auto' prefers terraform and falls back to tofu.
 function resolveCli(cliTool: string): string {
-    if (cliTool !== 'auto' && !KNOWN_CLIS.includes(cliTool)) {
+    if (!validateCliTool(cliTool)) {
         throw new Error(`Invalid cliTool "${cliTool}". Use 'auto', 'terraform' or 'tofu'.`);
     }
     for (const name of cliTool === 'auto' ? KNOWN_CLIS : [cliTool]) {
@@ -67,7 +67,7 @@ async function run() {
             tl.setResult(tl.TaskResult.Failed, `Plan file not found: ${planPath}`);
             return;
         }
-        if (!VALID_NAME.test(attachmentName)) {
+        if (!validateAttachmentName(attachmentName)) {
             tl.setResult(tl.TaskResult.Failed,
                 `Invalid attachmentName "${attachmentName}". Allowed characters: letters, digits, underscore, hyphen.`);
             return;

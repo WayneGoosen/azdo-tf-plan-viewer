@@ -173,7 +173,7 @@ describe('buildTree', () => {
         expect(tree.resources).toHaveLength(0);
         expect(tree.children.size).toBe(1);
         expect(tree.children.has('module.networking')).toBe(true);
-        
+
         const networkingModule = tree.children.get('module.networking')!;
         expect(networkingModule.resources).toHaveLength(1);
         expect(networkingModule.children.size).toBe(1);
@@ -214,7 +214,7 @@ describe('sample plan fixtures', () => {
         const fixturePath = path.join(__dirname, '../dev-fixtures/sample-plan.json');
         const content = fs.readFileSync(fixturePath, 'utf8');
         const plan: TerraformPlan = JSON.parse(content);
-        
+
         expect(plan.terraform_version).toBe('1.7.4');
         expect(plan.resource_changes).toBeDefined();
         expect(plan.resource_changes!.length).toBeGreaterThan(0);
@@ -224,7 +224,7 @@ describe('sample plan fixtures', () => {
         const fixturePath = path.join(__dirname, '../dev-fixtures/sample-plan-no-changes.json');
         const content = fs.readFileSync(fixturePath, 'utf8');
         const plan: TerraformPlan = JSON.parse(content);
-        
+
         expect(plan.resource_changes).toBeDefined();
     });
 
@@ -232,39 +232,51 @@ describe('sample plan fixtures', () => {
         const fixturePath = path.join(__dirname, '../dev-fixtures/sample-plan.json');
         const content = fs.readFileSync(fixturePath, 'utf8');
         const plan: TerraformPlan = JSON.parse(content);
-        
+
         const tree = buildTree(plan.resource_changes ?? []);
         expect(tree.counts.create).toBeGreaterThan(0);
     });
 });
 
 describe('issue #6 regression: sensitive values should be shown', () => {
-    it('shows sensitive value as (sensitive) rather than dropping it', () => {
+    it('shows marker-only sensitive attributes as (sensitive) rather than dropping them', () => {
         // Regression test for https://github.com/WayneGoosen/azdo-tf-plan-viewer/issues/6
-        // A resource with after_sensitive set should show the attribute as "(sensitive)"
-        // rather than dropping it from the diff entirely. This bug was fixed in production.
-        
+        // Terraform often lists a secret only in after_sensitive (not in after).
+        // The diff must still show the attribute as "(sensitive)" instead of omitting it.
         const change: Change = {
             actions: ['create'],
             before: null,
             after: {
                 display_name: 'deploy-secret',
-                client_secret: 'will-be-generated',
             },
             after_sensitive: {
                 client_secret: true,
             },
         };
-        
+
         const diff = computeDiff(change);
-        
-        // Should include client_secret in changed attributes
+
+        const clientSecretDiff = diff.changed.find(d => d.key === 'client_secret');
+        expect(clientSecretDiff).toBeDefined();
+        expect(clientSecretDiff?.kind).toBe('+');
+        expect(clientSecretDiff?.after).toBe('(sensitive)');
+
+        const displayNameDiff = diff.changed.find(d => d.key === 'display_name');
+        expect(displayNameDiff).toBeDefined();
+    });
+
+    it('shows marker-only client_secret from sample-plan.json', () => {
+        const fixturePath = path.join(__dirname, '../dev-fixtures/sample-plan.json');
+        const plan: TerraformPlan = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+        const resource = plan.resource_changes!.find(
+            r => r.address === 'azuread_application_password.deploy',
+        );
+        expect(resource).toBeDefined();
+        expect(resource!.change.after).not.toHaveProperty('client_secret');
+
+        const diff = computeDiff(resource!.change);
         const clientSecretDiff = diff.changed.find(d => d.key === 'client_secret');
         expect(clientSecretDiff).toBeDefined();
         expect(clientSecretDiff?.after).toBe('(sensitive)');
-        
-        // Should also have display_name
-        const displayNameDiff = diff.changed.find(d => d.key === 'display_name');
-        expect(displayNameDiff).toBeDefined();
     });
 });

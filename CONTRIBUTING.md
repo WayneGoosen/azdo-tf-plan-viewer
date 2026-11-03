@@ -212,7 +212,7 @@ azdo-tf-plan-viewer/
 │   ├── tab.ts               # Tab entry point
 │   ├── planLogic.ts         # Pure plan classification / diff / tree
 │   └── tab.test.ts          # Plan-logic unit tests
-├── eslint.config.js         # ESLint flat config (4-space indent)
+├── eslint.config.mjs        # ESLint flat config (4-space indent)
 ├── vitest.config.ts         # Vitest config
 ├── dev-fixtures/            # Sample plans for local dev
 ├── dist/                    # Build output (gitignored)

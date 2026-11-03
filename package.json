@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "npm run clean && npm run build:task && npm run build:tab && npm run copy-assets && npm run install-task-deps",
-    "build:task": "tsc",
+    "build:task": "tsc -p tsconfig.build.json",
     "build:tab": "webpack --mode production",
     "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
     "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",

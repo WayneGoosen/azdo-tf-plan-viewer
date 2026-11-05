@@ -42,6 +42,14 @@
         "tofu": "OpenTofu"
       },
       "helpMarkdown": "CLI used to convert a binary plan via `show -json`. Ignored for JSON plans. Only the `terraform` or `tofu` on the agent's PATH is used. `auto` uses `terraform` if it is on PATH, otherwise `tofu`. If both are installed, pick the CLI that produced the plan."
+    },
+    {
+      "name": "redactSensitive",
+      "type": "boolean",
+      "label": "Redact sensitive values",
+      "defaultValue": "true",
+      "required": false,
+      "helpMarkdown": "When true (the default), the attached plan JSON replaces every Terraform-marked sensitive leaf (`before_sensitive` / `after_sensitive`) with `(sensitive)` and keeps only the fields the Plan Review tab reads (`format_version`, `terraform_version`, `resource_changes`, `output_changes`). Set to false to attach the full unredacted plan — anyone with build read access can download attachment contents."
     }
   ],
   "execution": {

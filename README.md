@@ -119,15 +119,16 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 | `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 | `cliTool` | No | CLI used to convert binary plans: `auto` (terraform, then tofu), `terraform`, or `tofu`, looked up on the agent's `PATH`. Ignored for JSON plans. | `auto` |
+| `redactSensitive` | No | Replace Terraform-marked sensitive leaves with `(sensitive)` and drop unused plan fields before attaching. Set `false` to attach the full unredacted JSON. | `true` |
 
 ## How it works
 
-The task uploads the plan JSON as a build attachment under the type `terraform-plan-viewer.plan`. The tab fetches the attachment via Azure DevOps's Build REST API, parses it client-side, and renders the diff entirely in the browser. No server, no database, no third-party endpoint — plan data sits in your Azure DevOps organization the same way build logs do.
+The task uploads the plan JSON as a build attachment under the type `terraform-plan-viewer.plan`. By default it redacts Terraform-marked sensitive values and keeps only the fields the tab reads. The tab fetches the attachment via Azure DevOps's Build REST API, parses it client-side, and renders the diff entirely in the browser. No server, no database, no third-party endpoint — plan data sits in your Azure DevOps organization the same way build logs do.
 
 ## Privacy & security
 
 - **No third-party calls.** Plan JSON stays in your Azure DevOps organization. Nothing leaves your tenant.
-- **Sensitive values are masked.** Anything Terraform marks `sensitive` (`before_sensitive` / `after_sensitive`) renders as `(sensitive)` — the underlying value never reaches the DOM.
+- **Sensitive values are redacted on upload.** By default the task replaces every Terraform-marked sensitive leaf (`before_sensitive` / `after_sensitive`) with `(sensitive)` and drops unused heavy fields (`prior_state`, `configuration`, `variables`, …) before attaching. Anyone with build read access can download attachments, so the raw secrets never need to be stored. Set `redactSensitive: false` if you truly need the full unredacted plan. The tab also masks sensitive values in the UI so they never reach the DOM.
 - **DOM-safe rendering.** Plan content goes through `textContent` / `createElement`, never as an HTML string — so a malicious resource address can't inject script.
 
 ## Local development
@@ -146,9 +147,10 @@ The dev harness drives the production `renderPlans()` path with mock attachments
 
 The project uses [Vitest](https://vitest.dev/) for unit tests. Tests live alongside source files with a `.test.ts` suffix. Run `npm test` to execute all tests, or `npm run test:watch` for watch mode during development.
 
-Tests cover the pure business logic extracted into `tab/planLogic.ts` and `buildAndReleaseTask/validation.ts`:
+Tests cover the pure business logic extracted into `tab/planLogic.ts`, `buildAndReleaseTask/validation.ts`, and `buildAndReleaseTask/redact.ts`:
 - Plan classification, diff computation, and module tree building
 - Task input validation and binary plan detection
+- Sensitive-value redaction and unused-field slimming before attach
 - Sample plan fixtures
 - Regression tests for known issues (e.g., #6)
 

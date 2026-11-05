@@ -128,7 +128,7 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 
 ## How it works
 
-The task takes your plan file, validates it (binary plans get converted with `terraform show -json` or `tofu show -json`), and uploads the JSON as a build attachment with the type `terraform-plan-viewer.plan`. The tab calls Azure DevOps's Build REST API to download the attachment, parses it client-side, and renders it.
+The task takes your plan file, validates it (binary plans get converted with `terraform show -json` or `tofu show -json`), redacts Terraform-marked sensitive values by default, and uploads the JSON as a build attachment with the type `terraform-plan-viewer.plan`. The tab calls Azure DevOps's Build REST API to download the attachment, parses it client-side, and renders it.
 
 There's no server, no database, no third-party endpoint. Plan data sits in your Azure DevOps organization the same way build logs do.
 
@@ -137,7 +137,7 @@ There's no server, no database, no third-party endpoint. Plan data sits in your 
 ## Privacy & security
 
 - **No third-party calls.** Plan JSON lives as a build attachment in your Azure DevOps organization. The tab fetches it from your own ADO API. Nothing leaves your tenant.
-- **Sensitive values are masked.** Anything Terraform marks as `sensitive` in `before_sensitive` / `after_sensitive` renders as `(sensitive)` — the underlying value is not rendered to the DOM.
+- **Sensitive values are redacted on upload.** By default the task replaces Terraform-marked sensitive leaves with `(sensitive)` and drops unused plan fields before attaching, so raw secrets are not stored on the build. Set `redactSensitive: false` to attach the full unredacted plan. The tab also masks sensitive values in the UI.
 - **DOM-safe rendering.** Plan content goes through `textContent` / `createElement`, never as an HTML string — so a malicious resource address can't inject script.
 
 ---

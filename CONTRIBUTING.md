@@ -66,7 +66,7 @@ npm test           # Unit tests (Vitest)
 npm run lint       # ESLint
 ```
 
-Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`). Use `npm run test:watch` while iterating.
+Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`, `buildAndReleaseTask/redact.test.ts`). Use `npm run test:watch` while iterating.
 
 When adding features or fixing bugs, add coverage for the change. Bug fixes should include a regression test where practical.
 
@@ -206,7 +206,9 @@ azdo-tf-plan-viewer/
 │   ├── task.json            # Task manifest
 │   ├── index.ts             # Task entry point
 │   ├── validation.ts        # Pure input-validation helpers
-│   └── index.test.ts        # Task unit tests
+│   ├── redact.ts            # Slim + redact plan JSON before attach
+│   ├── index.test.ts        # Task unit tests
+│   └── redact.test.ts       # Redaction helper tests
 ├── tab/                     # Build results tab (browser UI)
 │   ├── tab.html
 │   ├── tab.ts               # Tab entry point

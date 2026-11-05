@@ -5,6 +5,7 @@
 | `planPath` | Yes | Path to a Terraform plan — binary (`terraform plan -out=…`) or JSON (`terraform show -json`). Binary plans are converted on the agent. | – |
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 | `cliTool` | No | CLI used to convert binary plans: `auto`, `terraform`, or `tofu`. Ignored for JSON plans. | `auto` |
+| `redactSensitive` | No | Replace Terraform-marked sensitive leaves with `(sensitive)` and drop unused plan fields before attaching. | `true` |
 
 ## `planPath`
 
@@ -45,4 +46,20 @@ step:
   inputs:
     planPath: '$(System.DefaultWorkingDirectory)/tfplan'
     cliTool: 'tofu'
+```
+
+## `redactSensitive`
+
+On by default. After the plan is available as JSON, the task:
+
+1. **Redacts** every leaf Terraform marked in `before_sensitive` / `after_sensitive`, replacing it with `(sensitive)` — the same placeholder the Plan Review tab displays.
+2. **Drops unused fields** the tab never reads (`prior_state`, `configuration`, `variables`, `planned_values`, `resource_drift`, and so on), keeping `format_version`, `terraform_version`, `resource_changes`, and `output_changes`.
+
+The attachment type stays `terraform-plan-viewer.plan`. Set `false` only if you need the full unredacted plan JSON on the build (anyone with build read access can download it):
+
+```yaml
+- task: TerraformPlanViewer@1
+  inputs:
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan'
+    redactSensitive: false
 ```

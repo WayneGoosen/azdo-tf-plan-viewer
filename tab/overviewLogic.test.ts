@@ -13,6 +13,8 @@ import {
     hiddenNoChangeCount,
     loadedSummary,
     pendingSummary,
+    planAriaLabel,
+    planId,
     shouldShowOverview,
     shouldShowPlan,
     uniqueTerraformVersions,
@@ -32,13 +34,26 @@ describe('default selection', () => {
     it('hides the overview when only one plan is attached', () => {
         expect(shouldShowOverview(1)).toBe(false);
         expect(shouldShowOverview(0)).toBe(false);
-        expect(defaultSelectorValue([{ name: 'staging' }])).toBe('staging');
+        expect(defaultSelectorValue([{ name: 'staging' }])).toBe(planId({ name: 'staging' }));
     });
 
     it('defaults to All plans when two or more plans are attached', () => {
         expect(shouldShowOverview(2)).toBe(true);
         expect(shouldShowOverview(34)).toBe(true);
         expect(defaultSelectorValue([{ name: 'a' }, { name: 'b' }])).toBe(ALL_PLANS_VALUE);
+    });
+
+    it('uses a sentinel that cannot collide with a valid attachmentName', () => {
+        expect(ALL_PLANS_VALUE).toBe('');
+        expect(/^[A-Za-z0-9_-]+$/.test(ALL_PLANS_VALUE)).toBe(false);
+        expect(ALL_PLANS_VALUE).not.toBe(planId({ name: 'terraform-plan' }));
+        expect(ALL_PLANS_VALUE).not.toBe(planId({ name: '__all__', timelineId: 't', recordId: 'r' }));
+    });
+
+    it('gives distinct ids to attachments that share a display name', () => {
+        const a = planId({ name: 'terraform-plan', timelineId: 'one', recordId: 'aaa' });
+        const b = planId({ name: 'terraform-plan', timelineId: 'two', recordId: 'bbb' });
+        expect(a).not.toBe(b);
     });
 });
 
@@ -118,7 +133,7 @@ describe('dominantAction', () => {
 describe('groupPlanNames', () => {
     it('returns a flat list for a single name or unique tokens', () => {
         expect(groupPlanNames(['staging'])).toEqual([
-            { key: '', items: [{ name: 'staging', label: 'staging' }] },
+            { key: '', items: [{ id: 'staging', name: 'staging', label: 'staging' }] },
         ]);
         expect(groupPlanNames(['dev', 'staging', 'prod'])[0].key).toBe('');
     });
@@ -160,8 +175,8 @@ describe('groupPlanNames', () => {
         expect(groups).toEqual([{
             key: 'app',
             items: [
-                { name: 'app-web', label: 'web' },
-                { name: 'app-api', label: 'api' },
+                { id: 'app-web', name: 'app-web', label: 'web' },
+                { id: 'app-api', name: 'app-api', label: 'api' },
             ],
         }]);
     });
@@ -250,6 +265,24 @@ describe('visibleGroups', () => {
         });
         expect(shown.map(g => g.key)).toEqual(['prod-apps']);
         expect(shown[0].items.map(i => i.name)).toEqual(['prod-apps-aks-cluster-weu']);
+    });
+});
+
+describe('planAriaLabel', () => {
+    it('includes loading, error, no-change, and action counts', () => {
+        expect(planAriaLabel(pendingSummary('hub'), 'hub')).toBe('hub, loading');
+        expect(planAriaLabel(errorSummary('hub', 'boom'), 'network-hub-vnet'))
+            .toBe('network-hub-vnet, failed to load');
+        expect(planAriaLabel(loadedSummary('quiet', { resource_changes: [] }), 'quiet'))
+            .toBe('quiet, no changes');
+        const changed = loadedSummary('hub', {
+            resource_changes: [
+                rc('a.x', 'a', ['create']),
+                rc('b.y', 'b', ['update']),
+                rc('c.z', 'c', ['delete']),
+            ],
+        });
+        expect(planAriaLabel(changed, 'hub')).toBe('hub, 1 delete, 1 update, 1 create');
     });
 });
 

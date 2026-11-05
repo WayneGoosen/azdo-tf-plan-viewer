@@ -40,10 +40,12 @@ import {
     defaultSelectorValue,
     dominantAction,
     errorSummary,
-    groupPlanNames,
+    groupPlans,
     hiddenNoChangeCount,
     loadedSummary,
     pendingSummary,
+    planAriaLabel,
+    planId,
     uniqueTerraformVersions,
     visibleGroups,
 } from './overviewLogic';
@@ -557,8 +559,10 @@ interface OverviewSession {
     onlyWithChanges: boolean;
     searchTerm: string;
     activeFilters: Set<ActionKind>;
-    groups: ReturnType<typeof groupPlanNames>;
+    groups: ReturnType<typeof groupPlans>;
     summaries: Map<string, PlanSummary>;
+    /** Explicit open/closed state for group keys; missing keys default to open. */
+    groupOpen: Map<string, boolean>;
     mounted: {
         summaryHost: HTMLElement;
         metaHost: HTMLElement;
@@ -588,14 +592,18 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
     const cache = new Map<string, TerraformPlan>();
     const inflight = new Map<string, Promise<TerraformPlan>>();
     const summaries = new Map<string, PlanSummary>();
-    for (const ref of refs) summaries.set(ref.name, pendingSummary(ref.name));
+    for (const ref of refs) {
+        const id = planId(ref);
+        summaries.set(id, pendingSummary(ref.name, id));
+    }
 
     const overview: OverviewSession = {
         onlyWithChanges: true,
         searchTerm: '',
         activeFilters: new Set(),
-        groups: groupPlanNames(refs.map(r => r.name)),
+        groups: groupPlans(refs.map(r => ({ id: planId(r), name: r.name }))),
         summaries,
+        groupOpen: new Map(),
         mounted: null,
     };
 
@@ -606,20 +614,21 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
     let overviewFetchStarted = false;
 
     const fetchOne = (ref: PlanRef): Promise<TerraformPlan> => {
-        const cached = cache.get(ref.name);
+        const id = planId(ref);
+        const cached = cache.get(id);
         if (cached) return Promise.resolve(cached);
-        const existing = inflight.get(ref.name);
+        const existing = inflight.get(id);
         if (existing) return existing;
         const p = fetcher(ref).then(plan => {
-            cache.set(ref.name, plan);
-            summaries.set(ref.name, loadedSummary(ref.name, plan));
-            inflight.delete(ref.name);
+            cache.set(id, plan);
+            summaries.set(id, loadedSummary(ref.name, plan, id));
+            inflight.delete(id);
             return plan;
         }, err => {
-            inflight.delete(ref.name);
+            inflight.delete(id);
             throw err;
         });
-        inflight.set(ref.name, p);
+        inflight.set(id, p);
         return p;
     };
 
@@ -637,8 +646,8 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         clear(summaryHost);
         summaryHost.appendChild(renderOverviewSummary(overview, patchOverview));
         clear(listHost);
-        listHost.appendChild(renderOverviewList(overview, name => {
-            const ref = refs.find(r => r.name === name);
+        listHost.appendChild(renderOverviewList(overview, id => {
+            const ref = refs.find(r => planId(r) === id);
             if (ref) void switchTo({ kind: 'plan', ref });
         }));
         clear(hiddenHost);
@@ -677,7 +686,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
     const loadAllForOverview = async () => {
         if (overviewFetchStarted) return;
         overviewFetchStarted = true;
-        const pending = refs.filter(r => !cache.has(r.name));
+        const pending = refs.filter(r => !cache.has(planId(r)));
         let cursor = 0;
         const worker = async () => {
             while (cursor < pending.length) {
@@ -685,7 +694,8 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
                 try {
                     await fetchOne(ref);
                 } catch (err: any) {
-                    summaries.set(ref.name, errorSummary(ref.name, err?.message ?? String(err)));
+                    const id = planId(ref);
+                    summaries.set(id, errorSummary(ref.name, err?.message ?? String(err), id));
                 }
                 patchOverview();
             }
@@ -696,7 +706,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
     const switchTo = async (view: View) => {
         current = view;
-        if (select) select.value = view.kind === 'all' ? ALL_PLANS_VALUE : view.ref.name;
+        if (select) select.value = view.kind === 'all' ? ALL_PLANS_VALUE : planId(view.ref);
 
         if (view.kind === 'all') {
             showOverview();
@@ -705,8 +715,9 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
         overview.mounted = null;
         const ref = view.ref;
-        if (cache.has(ref.name)) {
-            renderPlan(cache.get(ref.name)!, body);
+        const id = planId(ref);
+        if (cache.has(id)) {
+            renderPlan(cache.get(id)!, body);
             return;
         }
 
@@ -716,7 +727,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
             const plan = await fetchOne(ref);
             if (current.kind === 'plan' && current.ref === ref) renderPlan(plan, body);
         } catch (err: any) {
-            summaries.set(ref.name, errorSummary(ref.name, err?.message ?? String(err)));
+            summaries.set(id, errorSummary(ref.name, err?.message ?? String(err), id));
             if (current.kind === 'plan' && current.ref === ref) {
                 showStatusInto(body, 'Could not load Terraform plan',
                     err?.message ?? String(err), 'error');
@@ -732,7 +743,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
                 void switchTo({ kind: 'all' });
                 return;
             }
-            const next = refs.find(r => r.name === value);
+            const next = refs.find(r => planId(r) === value);
             if (next) void switchTo({ kind: 'plan', ref: next });
         });
         selectorBar.appendChild(el('label', { class: 'plan-selector', attrs: { for: 'plan-select' } }, [
@@ -757,9 +768,17 @@ function renderSelector(refs: PlanRef[], currentValue: string, onChange: (value:
     if (currentValue === ALL_PLANS_VALUE) all.selected = true;
     select.appendChild(all);
 
+    const nameCounts = new Map<string, number>();
+    for (const ref of refs) nameCounts.set(ref.name, (nameCounts.get(ref.name) ?? 0) + 1);
+
     for (const ref of refs) {
-        const opt = el('option', { text: ref.name, attrs: { value: ref.name } });
-        if (ref.name === currentValue) opt.selected = true;
+        const id = planId(ref);
+        const dup = (nameCounts.get(ref.name) ?? 0) > 1;
+        const text = dup && ref.recordId
+            ? `${ref.name} (${ref.recordId.slice(0, 8)})`
+            : ref.name;
+        const opt = el('option', { text, attrs: { value: id } });
+        if (id === currentValue) opt.selected = true;
         select.appendChild(opt);
     }
 
@@ -854,14 +873,17 @@ function renderOverviewControls(session: OverviewSession, onChange: () => void):
         onChange();
     });
 
+    const setAllGroupsOpen = (open: boolean) => {
+        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details.plan-group').forEach(d => {
+            d.open = open;
+            const key = d.dataset.groupKey;
+            if (key) session.groupOpen.set(key, open);
+        });
+    };
     const expandAll = el('button', { class: 'control-btn', text: 'Expand all', attrs: { type: 'button' } });
-    expandAll.addEventListener('click', () => {
-        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details').forEach(d => { d.open = true; });
-    });
+    expandAll.addEventListener('click', () => setAllGroupsOpen(true));
     const collapseAll = el('button', { class: 'control-btn', text: 'Collapse all', attrs: { type: 'button' } });
-    collapseAll.addEventListener('click', () => {
-        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details').forEach(d => { d.open = false; });
-    });
+    collapseAll.addEventListener('click', () => setAllGroupsOpen(false));
 
     return el('section', { class: 'controls' }, [
         search,
@@ -872,7 +894,7 @@ function renderOverviewControls(session: OverviewSession, onChange: () => void):
 
 function renderOverviewList(
     session: OverviewSession,
-    onOpen: (name: string) => void,
+    onOpen: (id: string) => void,
 ): HTMLElement {
     const filter: OverviewFilter = {
         search: session.searchTerm,
@@ -898,15 +920,15 @@ function renderOverviewList(
             || (group.items.length === 1 && group.items[0].label === group.items[0].name);
         if (flatten) {
             for (const item of group.items) {
-                const summary = session.summaries.get(item.name);
-                if (summary) list.appendChild(renderPlanRow(summary, item.name, () => onOpen(item.name)));
+                const summary = session.summaries.get(item.id);
+                if (summary) list.appendChild(renderPlanRow(summary, item.name, () => onOpen(item.id)));
             }
             continue;
         }
 
         let counts = emptyCounts();
         for (const item of group.items) {
-            const s = session.summaries.get(item.name);
+            const s = session.summaries.get(item.id);
             if (s) counts = addCounts(counts, s.counts);
         }
         const summaryEl = el('summary', { class: 'module-summary' }, [
@@ -914,12 +936,16 @@ function renderOverviewList(
             renderCountPills(counts),
         ]);
         const details = el('details', { class: 'module-node plan-group' });
-        details.open = true;
+        details.dataset.groupKey = group.key;
+        details.open = session.groupOpen.get(group.key) ?? true;
+        details.addEventListener('toggle', () => {
+            session.groupOpen.set(group.key, details.open);
+        });
         details.appendChild(summaryEl);
         const body = el('div', { class: 'module-body' });
         for (const item of group.items) {
-            const summary = session.summaries.get(item.name);
-            if (summary) body.appendChild(renderPlanRow(summary, item.label, () => onOpen(item.name)));
+            const summary = session.summaries.get(item.id);
+            if (summary) body.appendChild(renderPlanRow(summary, item.label, () => onOpen(item.id)));
         }
         details.appendChild(body);
         list.appendChild(details);
@@ -936,7 +962,8 @@ function renderPlanRow(summary: PlanSummary, label: string, onOpen: () => void):
         attrs: {
             type: 'button',
             'data-plan-name': summary.name,
-            'aria-label': `Open plan ${summary.name}`,
+            'data-plan-id': summary.id,
+            'aria-label': planAriaLabel(summary, label),
         },
     }, [
         el('code', { class: 'plan-row-name', text: label }),

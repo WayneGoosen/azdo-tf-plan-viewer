@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ALL_PLANS_VALUE } from './overviewLogic';
+import { ALL_PLANS_VALUE, planId } from './overviewLogic';
 
 (window as unknown as { __TF_DEV__?: boolean }).__TF_DEV__ = true;
 
@@ -21,8 +21,14 @@ vi.mock('azure-devops-extension-api/Build', () => ({
     BuildServiceIds: { BuildPageDataService: 'BuildPageDataService' },
 }));
 
-function ref(name: string) {
-    return { name, projectId: 'p', buildId: 1, timelineId: 't', recordId: 'r' };
+function ref(name: string, extras: { timelineId?: string; recordId?: string } = {}) {
+    return {
+        name,
+        projectId: 'p',
+        buildId: 1,
+        timelineId: extras.timelineId ?? 't',
+        recordId: extras.recordId ?? 'r',
+    };
 }
 
 function planWith(actions: string[][], extras: { terraform_version?: string } = {}) {
@@ -73,7 +79,7 @@ describe('renderPlans', () => {
             'prod-platform-network-hub-vnet': changed,
         };
         await renderPlans(
-            Object.keys(fixtures).map(ref),
+            Object.keys(fixtures).map(name => ref(name)),
             async r => fixtures[r.name],
             root,
         );
@@ -122,7 +128,8 @@ describe('renderPlans', () => {
         await Promise.resolve();
 
         expect(root.querySelector('h1')?.textContent).toBe('Terraform Plan');
-        expect(root.querySelector<HTMLSelectElement>('#plan-select')?.value).toBe('prod-apps-aks-cluster-weu');
+        expect(root.querySelector<HTMLSelectElement>('#plan-select')?.value)
+            .toBe(planId(ref('prod-apps-aks-cluster-weu')));
         expect(root.querySelector('.resource-address')?.textContent).toBe('test_resource.0');
 
         const select = root.querySelector<HTMLSelectElement>('#plan-select')!;
@@ -170,5 +177,77 @@ describe('renderPlans', () => {
         expect(root.querySelectorAll('.plan-row')).toHaveLength(2);
         expect(root.querySelector('.hidden-plans')).toBeNull();
         expect(root.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(false);
+    });
+
+    it('counts two attachments that share a display name separately', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const a = ref('terraform-plan', { timelineId: 'one', recordId: 'aaa' });
+        const b = ref('terraform-plan', { timelineId: 'two', recordId: 'bbb' });
+        await renderPlans(
+            [a, b],
+            async r => r.recordId === 'aaa' ? planWith([['create']]) : planWith([['delete']]),
+            root,
+        );
+        await vi.waitFor(() => {
+            expect(root.textContent ?? '').not.toMatch(/Loading/);
+        });
+
+        const counts = [...root.querySelectorAll('.summary-count')].map(n => n.textContent);
+        expect(counts).toEqual(['1', '0', '0', '1']);
+        const ids = [...root.querySelectorAll('.plan-row')].map(r => r.getAttribute('data-plan-id'));
+        expect(ids).toEqual([planId(a), planId(b)]);
+    });
+
+    it('keeps a collapsed group collapsed while background fetches complete', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        let releaseSlow: (plan: ReturnType<typeof planWith>) => void = () => undefined;
+        const slow = new Promise<ReturnType<typeof planWith>>(resolve => { releaseSlow = resolve; });
+        const fetchP = renderPlans(
+            [
+                ref('prod-apps-aks-cluster-weu'),
+                ref('prod-apps-sql-primary'),
+                ref('prod-platform-network-hub-vnet'),
+            ],
+            async r => {
+                if (r.name === 'prod-apps-sql-primary') return slow;
+                return changed;
+            },
+            root,
+        );
+
+        await vi.waitFor(() => {
+            expect(root.querySelector('.plan-group')).not.toBeNull();
+        });
+        const group = root.querySelector<HTMLDetailsElement>('details.plan-group')!;
+        expect(group.open).toBe(true);
+        group.open = false;
+        group.dispatchEvent(new Event('toggle'));
+
+        releaseSlow(changed);
+        await fetchP;
+        await vi.waitFor(() => {
+            expect(root.textContent ?? '').not.toMatch(/Loading/);
+        });
+
+        expect(root.querySelector<HTMLDetailsElement>('details.plan-group[data-group-key="prod-apps"]')?.open)
+            .toBe(false);
+    });
+
+    it('exposes counts and status on the row accessible name', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans(
+            [ref('adds'), ref('quiet')],
+            async r => r.name === 'adds' ? changed : noChange,
+            root,
+        );
+        await vi.waitFor(() => {
+            expect(root.querySelector('.hidden-plans')).not.toBeNull();
+        });
+        const row = root.querySelector<HTMLButtonElement>('.plan-row')!;
+        expect(row.getAttribute('aria-label')).toMatch(/1 update/);
+        expect(row.getAttribute('aria-label')).toMatch(/1 create/);
     });
 });

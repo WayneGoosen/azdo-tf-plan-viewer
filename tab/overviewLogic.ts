@@ -14,14 +14,24 @@ import {
     emptyCounts,
 } from './planLogic';
 
-/** Sentinel <option> value for the combined overview. Not a legal task attachmentName. */
-export const ALL_PLANS_VALUE = '__all__';
+/**
+ * Sentinel <option> value for the combined overview.
+ * Empty string is not a legal task attachmentName (`VALID_NAME` requires 1+
+ * `[A-Za-z0-9_-]` chars) and cannot collide with {@link planId}.
+ */
+export const ALL_PLANS_VALUE = '';
 
-const ACTION_PRIORITY: ActionKind[] = ['delete', 'recreate', 'update', 'create'];
+/** Stable identity for a plan attachment across duplicate display names. */
+export function planId(ref: { name: string; timelineId?: string; recordId?: string }): string {
+    return `${ref.timelineId ?? ''}\t${ref.recordId ?? ''}\t${ref.name}`;
+}
+
+const ACTION_PRIORITY = ['delete', 'recreate', 'update', 'create'] as const;
 
 export type LoadStatus = 'pending' | 'loaded' | 'error';
 
 export interface PlanSummary {
+    id: string;
     name: string;
     status: LoadStatus;
     counts: Record<ActionKind, number>;
@@ -33,10 +43,16 @@ export interface PlanSummary {
     error?: string;
 }
 
+export interface PlanGroupItem {
+    id: string;
+    name: string;
+    label: string;
+}
+
 export interface PlanGroup {
     /** Empty string means the list is flat (grouping did not help). */
     key: string;
-    items: Array<{ name: string; label: string }>;
+    items: PlanGroupItem[];
 }
 
 export interface OverviewFilter {
@@ -49,13 +65,14 @@ export function shouldShowOverview(planCount: number): boolean {
     return planCount > 1;
 }
 
-export function defaultSelectorValue(refs: Array<{ name: string }>): string {
+export function defaultSelectorValue(refs: Array<{ name: string; timelineId?: string; recordId?: string }>): string {
     if (refs.length > 1) return ALL_PLANS_VALUE;
-    return refs[0]?.name ?? '';
+    return refs[0] ? planId(refs[0]) : ALL_PLANS_VALUE;
 }
 
-export function pendingSummary(name: string): PlanSummary {
+export function pendingSummary(name: string, id: string = name): PlanSummary {
     return {
+        id,
         name,
         status: 'pending',
         counts: emptyCounts(),
@@ -71,6 +88,7 @@ export function loadedSummary(
         terraform_version?: string;
         output_changes?: Record<string, { actions: string[] }>;
     },
+    id: string = name,
 ): PlanSummary {
     const counts = countResourceChanges(plan.resource_changes ?? []);
     const haystack = [
@@ -78,6 +96,7 @@ export function loadedSummary(
         ...(plan.resource_changes ?? []).flatMap(r => [r.address, r.type]),
     ].join('\n').toLowerCase();
     return {
+        id,
         name,
         status: 'loaded',
         counts,
@@ -87,8 +106,9 @@ export function loadedSummary(
     };
 }
 
-export function errorSummary(name: string, error: string): PlanSummary {
+export function errorSummary(name: string, error: string, id: string = name): PlanSummary {
     return {
+        id,
         name,
         status: 'error',
         counts: emptyCounts(),
@@ -96,6 +116,26 @@ export function errorSummary(name: string, error: string): PlanSummary {
         haystack: name.toLowerCase(),
         error,
     };
+}
+
+const ACTION_WORDS: Record<typeof ACTION_PRIORITY[number], string> = {
+    create: 'create',
+    update: 'update',
+    recreate: 'recreate',
+    delete: 'delete',
+};
+
+/** Accessible name for an overview row: display label plus status or counts. */
+export function planAriaLabel(summary: PlanSummary, label: string): string {
+    const name = label || summary.name;
+    if (summary.status === 'pending') return `${name}, loading`;
+    if (summary.status === 'error') return `${name}, failed to load`;
+    const bits: string[] = [];
+    for (const k of ACTION_PRIORITY) {
+        if (summary.counts[k] > 0) bits.push(`${summary.counts[k]} ${ACTION_WORDS[k]}`);
+    }
+    if (bits.length === 0) return `${name}, no changes`;
+    return `${name}, ${bits.join(', ')}`;
 }
 
 function outputsHaveChanges(outputs: Record<string, { actions: string[] }> | undefined): boolean {
@@ -159,20 +199,21 @@ export function hiddenNoChangeCount(summaries: PlanSummary[], filter: OverviewFi
 
 // ------------------------------ Grouping ------------------------------------
 
-interface ParsedName {
+interface ParsedPlan {
+    id: string;
     name: string;
     parts: string[];
     join: string;
 }
 
-function splitPlanName(name: string): ParsedName {
+function splitPlanName(name: string): { parts: string[]; join: string } {
     if (/[\\/]/.test(name)) {
-        return { name, parts: name.split(/[\\/]+/).filter(Boolean), join: '/' };
+        return { parts: name.split(/[\\/]+/).filter(Boolean), join: '/' };
     }
-    return { name, parts: name.split('-').filter(Boolean), join: '-' };
+    return { parts: name.split('-').filter(Boolean), join: '-' };
 }
 
-function bucketAtDepth(parsed: ParsedName[], depth: number): PlanGroup[] {
+function bucketAtDepth(parsed: ParsedPlan[], depth: number): PlanGroup[] {
     const buckets = new Map<string, PlanGroup>();
     const order: string[] = [];
     for (const p of parsed) {
@@ -186,7 +227,7 @@ function bucketAtDepth(parsed: ParsedName[], depth: number): PlanGroup[] {
             buckets.set(key, g);
             order.push(key);
         }
-        g.items.push({ name: p.name, label });
+        g.items.push({ id: p.id, name: p.name, label });
     }
     return order.map(k => buckets.get(k)!);
 }
@@ -216,11 +257,14 @@ function groupScore(groups: PlanGroup[], total: number): number | null {
  * such as `prod-platform/network/hub-vnet` from ##vso[task.addattachment] work
  * the same way.
  */
-export function groupPlanNames(names: string[]): PlanGroup[] {
-    const flat: PlanGroup[] = [{ key: '', items: names.map(name => ({ name, label: name })) }];
-    if (names.length < 2) return flat;
+export function groupPlans(plans: Array<{ id: string; name: string }>): PlanGroup[] {
+    const flat: PlanGroup[] = [{
+        key: '',
+        items: plans.map(p => ({ id: p.id, name: p.name, label: p.name })),
+    }];
+    if (plans.length < 2) return flat;
 
-    const parsed = names.map(splitPlanName);
+    const parsed: ParsedPlan[] = plans.map(p => ({ id: p.id, name: p.name, ...splitPlanName(p.name) }));
     if (parsed.every(p => p.parts.length <= 1)) return flat;
 
     const maxDepth = Math.max(0, Math.max(...parsed.map(p => p.parts.length)) - 1);
@@ -228,12 +272,17 @@ export function groupPlanNames(names: string[]): PlanGroup[] {
 
     for (let depth = 0; depth <= maxDepth; depth++) {
         const groups = bucketAtDepth(parsed, depth);
-        const score = groupScore(groups, names.length);
+        const score = groupScore(groups, plans.length);
         if (score === null) continue;
         if (!best || score > best.score) best = { score, groups };
     }
 
     return best ? best.groups : flat;
+}
+
+/** Convenience wrapper for tests and callers that only have display names. */
+export function groupPlanNames(names: string[]): PlanGroup[] {
+    return groupPlans(names.map(name => ({ id: name, name })));
 }
 
 export function visibleGroups(
@@ -244,7 +293,7 @@ export function visibleGroups(
     const out: PlanGroup[] = [];
     for (const g of groups) {
         const items = g.items.filter(i => {
-            const s = summaries.get(i.name);
+            const s = summaries.get(i.id);
             return s ? shouldShowPlan(s, filter) : false;
         });
         if (items.length) out.push({ key: g.key, items });

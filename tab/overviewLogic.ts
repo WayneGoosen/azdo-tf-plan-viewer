@@ -118,7 +118,7 @@ export function uniqueTerraformVersions(summaries: PlanSummary[]): string[] {
     for (const s of summaries) {
         if (s.status === 'loaded' && s.terraformVersion) set.add(s.terraformVersion);
     }
-    return [...set].sort();
+    return [...set].sort((a, b) => a.localeCompare(b));
 }
 
 export function shouldShowPlan(summary: PlanSummary, filter: OverviewFilter): boolean {

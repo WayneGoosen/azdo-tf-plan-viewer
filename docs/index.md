@@ -4,7 +4,7 @@
 
 A native **Plan Review** tab for Azure DevOps build summaries. It renders
 `terraform plan` output as a structured, searchable diff — module tree,
-attribute-level before → after, replace reasons, multi-stage selector — instead
+attribute-level before → after, replace reasons, All-plans overview — instead
 of dumping it as text into the build log.
 
 [Get it on the Marketplace :material-open-in-new:](https://marketplace.visualstudio.com/items?itemName=WayneGoosen.terraform-plan-viewer){ .md-button .md-button--primary }
@@ -40,9 +40,13 @@ not text — so the tab can do everything a code reviewer needs.
 - **Click-to-filter summary.** Four cards at the top — Create / Update /
   Recreate / Delete — each clickable. Combine with a search box across resource
   addresses and types.
-- **Multi-stage selector.** Publish multiple plans per build (dev / staging /
-  prod) and switch between them in a dropdown. The selector hides when only one
-  plan is attached, so single-plan UX stays unchanged.
+- **All-plans overview.** When a build attaches two or more plans, the tab
+  opens on a combined view — cumulative Create / Update / Recreate / Delete
+  counts, a grouped list of every plan, and a toggle to show only plans that
+  have changes. Click a row (or pick it in the dropdown) for the existing
+  per-plan detail. A single attachment still looks exactly as it does today.
+
+![All plans overview](assets/images/04-all-plans-overview.png)
 - **Outputs section.** Output changes are rendered separately so downstream
   consumers don't get blindsided by a removed `connection_string`.
 - **Native ADO theming.** Colours use ADO theme tokens — light, dark, and

@@ -6,13 +6,19 @@
 // case.
 
 (function () {
-    var FIXTURES = [
+    var ALL_FIXTURES = [
+        { name: 'prod-apps-aks-cluster-weu', file: 'sample-plan.json' },
+        { name: 'prod-apps-sql-primary', file: 'sample-plan-no-changes.json' },
+        { name: 'prod-platform-dns-private-zones', file: 'sample-plan-no-changes.json' },
+        { name: 'prod-platform-network-hub-vnet', file: 'sample-plan.json' },
+        { name: 'shared-monitoring', file: 'sample-plan-no-changes.json' },
         { name: 'staging', file: 'sample-plan.json' },
-        { name: 'prod-no-changes', file: 'sample-plan-no-changes.json' },
     ];
 
     var params = new URLSearchParams(window.location.search);
-    var refs = params.get('single') === '1' ? FIXTURES.slice(0, 1) : FIXTURES;
+    var refs = params.get('single') === '1'
+        ? [{ name: 'staging', file: 'sample-plan.json' }]
+        : ALL_FIXTURES;
 
     // PlanRef shape mirrors tab.ts. Fields other than `name` are unused by
     // the dev fetcher — they exist only to satisfy the production type.
@@ -43,5 +49,10 @@
     }
 
     var container = document.getElementById('container');
-    window.TerraformPlanViewer.renderPlans(planRefs, devFetcher, container);
+    var renderP = window.TerraformPlanViewer.renderPlans(planRefs, devFetcher, container);
+    // Overview fetches continue in the background; wait briefly so ?shot=1
+    // screenshots capture filled-in counts rather than "Loading…".
+    Promise.resolve(renderP).then(function () {
+        setTimeout(function () { document.documentElement.dataset.ready = '1'; }, 400);
+    });
 })();

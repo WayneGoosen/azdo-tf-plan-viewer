@@ -10,12 +10,17 @@
       Set the bypass flag BEFORE tab.js runs so its bootstrap() doesn't try to
       contact ADO. dev.js then drives renderPlans() with fixture-backed refs.
     -->
-    <script>window.__TF_DEV__ = true;</script>
+    <script>
+        window.__TF_DEV__ = true;
+        if (new URLSearchParams(location.search).has('shot')) {
+            document.documentElement.classList.add('shot');
+        }
+    </script>
 </head>
 <body>
     <div class="dev-toolbar">
         <strong>Local dev harness</strong>
-        <span>multi-plan: switch via the in-tab dropdown</span>
+        <span>multi-plan: All plans overview + in-tab dropdown</span>
         <span>·</span>
         <a href="?single=1">single-plan view</a>
         <span style="margin-left: auto; opacity: 0.6">edit tab.ts → re-run `npm run dev` → reload</span>

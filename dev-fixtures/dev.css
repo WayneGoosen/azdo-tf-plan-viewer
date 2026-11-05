@@ -15,3 +15,6 @@
 .dev-toolbar a {
     color: #0078d4;
 }
+
+/* ?shot=1 hides harness chrome so screenshots match the tab as it appears in ADO. */
+html.shot .dev-toolbar { display: none; }

@@ -21,8 +21,9 @@ Point this at the plan file your pipeline produced. Both forms are accepted:
 
 Only relevant when you publish more than one plan per build (see the
 [multi-stage example](usage.md#multi-stage-example)). Each distinct
-`attachmentName` becomes an entry in the tab's dropdown; alphabetical order
-decides which is selected first. With a single plan the selector is hidden.
+`attachmentName` becomes an entry in the tab's dropdown. With two or more
+plans the tab defaults to an **All plans** overview; pick a name to open that
+plan's detail. With a single plan the selector is hidden.
 
 ## `cliTool`
 

@@ -62,6 +62,26 @@ export function emptyCounts(): Record<ActionKind, number> {
     return { create: 0, update: 0, delete: 0, recreate: 0, read: 0, noop: 0 };
 }
 
+export function addCounts(
+    a: Record<ActionKind, number>,
+    b: Record<ActionKind, number>,
+): Record<ActionKind, number> {
+    const out = emptyCounts();
+    (Object.keys(out) as ActionKind[]).forEach(k => { out[k] = a[k] + b[k]; });
+    return out;
+}
+
+export function countResourceChanges(resources: ResourceChange[]): Record<ActionKind, number> {
+    const counts = emptyCounts();
+    for (const r of resources) counts[classifyAction(r.change.actions)]++;
+    return counts;
+}
+
+/** True when the plan would create, update, recreate, or delete at least one resource. */
+export function countsHaveChanges(counts: Record<ActionKind, number>): boolean {
+    return counts.create + counts.update + counts.delete + counts.recreate > 0;
+}
+
 // ------------------------------- Module tree --------------------------------
 
 export function splitModuleAddress(addr: string | undefined): string[] {

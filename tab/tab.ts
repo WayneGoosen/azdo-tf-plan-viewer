@@ -25,14 +25,33 @@ import {
     type ModuleNode,
     type ResourceChange,
     type ResourceDiff,
+    addCounts,
     buildTree,
     classifyAction,
     computeDiff,
+    emptyCounts,
     formatReplacePath,
     formatValue,
 } from './planLogic';
+import {
+    ALL_PLANS_VALUE,
+    type OverviewFilter,
+    type PlanSummary,
+    defaultSelectorValue,
+    dominantAction,
+    errorSummary,
+    groupPlanNames,
+    hiddenNoChangeCount,
+    loadedSummary,
+    pendingSummary,
+    uniqueTerraformVersions,
+    visibleGroups,
+} from './overviewLogic';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
+
+/** Parallel attachment downloads when filling the All-plans overview. */
+const OVERVIEW_FETCH_CONCURRENCY = 6;
 
 // ----------------------------- Type definitions -----------------------------
 
@@ -180,10 +199,13 @@ function renderHeader(plan: TerraformPlan): HTMLElement {
     ]);
 }
 
-function renderSummary(state: RenderState): HTMLElement {
-    const counts = state.tree.counts;
+function renderActionCards(
+    counts: Record<ActionKind, number>,
+    activeFilters: ReadonlySet<ActionKind>,
+    onToggle: (kind: ActionKind) => void,
+): HTMLElement {
     const card = (kind: ActionKind, label: string) => {
-        const isActive = state.activeFilters.has(kind);
+        const isActive = activeFilters.has(kind);
         const c = el('button', {
             class: `summary-card summary-${kind}` + (isActive ? ' is-active' : ''),
             attrs: { type: 'button', 'aria-pressed': isActive ? 'true' : 'false' },
@@ -191,7 +213,7 @@ function renderSummary(state: RenderState): HTMLElement {
             el('span', { class: 'summary-count', text: String(counts[kind]) }),
             el('span', { class: 'summary-label', text: label }),
         ]);
-        c.addEventListener('click', () => toggleFilter(state, kind));
+        c.addEventListener('click', () => onToggle(kind));
         return c;
     };
 
@@ -201,6 +223,10 @@ function renderSummary(state: RenderState): HTMLElement {
         card('recreate', 'Recreate'),
         card('delete', 'Delete'),
     ]);
+}
+
+function renderSummary(state: RenderState): HTMLElement {
+    return renderActionCards(state.tree.counts, state.activeFilters, kind => toggleFilter(state, kind));
 }
 
 function toggleFilter(state: RenderState, kind: ActionKind) {
@@ -525,11 +551,30 @@ async function fetchPlanContent(ref: PlanRef): Promise<TerraformPlan> {
 // on the live ADO SDK. The orchestrator below is identical in both modes.
 export type PlanFetcher = (ref: PlanRef) => Promise<TerraformPlan>;
 
-export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: HTMLElement) {
-    if (refs.length === 0) {
+type View = { kind: 'all' } | { kind: 'plan'; ref: PlanRef };
+
+interface OverviewSession {
+    onlyWithChanges: boolean;
+    searchTerm: string;
+    activeFilters: Set<ActionKind>;
+    groups: ReturnType<typeof groupPlanNames>;
+    summaries: Map<string, PlanSummary>;
+    mounted: {
+        summaryHost: HTMLElement;
+        metaHost: HTMLElement;
+        listHost: HTMLElement;
+        hiddenHost: HTMLElement;
+    } | null;
+}
+
+export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, root: HTMLElement) {
+    if (inputRefs.length === 0) {
         showStatusInto(root, 'No Terraform plan was attached to this build.', '', 'error');
         return;
     }
+
+    const refs = [...inputRefs].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
     clear(root);
 
@@ -541,11 +586,125 @@ export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: H
     root.appendChild(body);
 
     const cache = new Map<string, TerraformPlan>();
-    let select: HTMLSelectElement | null = null;
-    let current: PlanRef = refs[0];
+    const inflight = new Map<string, Promise<TerraformPlan>>();
+    const summaries = new Map<string, PlanSummary>();
+    for (const ref of refs) summaries.set(ref.name, pendingSummary(ref.name));
 
-    const switchTo = async (ref: PlanRef) => {
-        current = ref;
+    const overview: OverviewSession = {
+        onlyWithChanges: true,
+        searchTerm: '',
+        activeFilters: new Set(),
+        groups: groupPlanNames(refs.map(r => r.name)),
+        summaries,
+        mounted: null,
+    };
+
+    let select: HTMLSelectElement | null = null;
+    let current: View = refs.length > 1
+        ? { kind: 'all' }
+        : { kind: 'plan', ref: refs[0] };
+    let overviewFetchStarted = false;
+
+    const fetchOne = (ref: PlanRef): Promise<TerraformPlan> => {
+        const cached = cache.get(ref.name);
+        if (cached) return Promise.resolve(cached);
+        const existing = inflight.get(ref.name);
+        if (existing) return existing;
+        const p = fetcher(ref).then(plan => {
+            cache.set(ref.name, plan);
+            summaries.set(ref.name, loadedSummary(ref.name, plan));
+            inflight.delete(ref.name);
+            return plan;
+        }, err => {
+            inflight.delete(ref.name);
+            throw err;
+        });
+        inflight.set(ref.name, p);
+        return p;
+    };
+
+    const filterOf = (): OverviewFilter => ({
+        search: overview.searchTerm,
+        onlyWithChanges: overview.onlyWithChanges,
+        actionFilters: overview.activeFilters,
+    });
+
+    const patchOverview = () => {
+        if (current.kind !== 'all' || !overview.mounted) return;
+        const { summaryHost, metaHost, listHost, hiddenHost } = overview.mounted;
+        clear(metaHost);
+        fillOverviewMeta(metaHost, refs.length, [...summaries.values()]);
+        clear(summaryHost);
+        summaryHost.appendChild(renderOverviewSummary(overview, patchOverview));
+        clear(listHost);
+        listHost.appendChild(renderOverviewList(overview, name => {
+            const ref = refs.find(r => r.name === name);
+            if (ref) void switchTo({ kind: 'plan', ref });
+        }));
+        clear(hiddenHost);
+        const hidden = hiddenNoChangeCount([...summaries.values()], filterOf());
+        if (hidden > 0 && overview.onlyWithChanges) {
+            hiddenHost.appendChild(renderHiddenBanner(hidden, () => {
+                overview.onlyWithChanges = false;
+                const toggle = body.querySelector<HTMLInputElement>('.toggle-input');
+                if (toggle) toggle.checked = false;
+                patchOverview();
+            }));
+        }
+    };
+
+    const showOverview = () => {
+        overview.mounted = null;
+        clear(body);
+        const metaHost = el('div', { class: 'header-meta' });
+        const summaryHost = el('div');
+        const listHost = el('div');
+        const hiddenHost = el('div');
+        overview.mounted = { summaryHost, metaHost, listHost, hiddenHost };
+
+        body.appendChild(el('header', { class: 'header' }, [
+            el('h1', { text: 'All plans' }),
+            metaHost,
+        ]));
+        body.appendChild(summaryHost);
+        body.appendChild(renderOverviewControls(overview, patchOverview));
+        body.appendChild(listHost);
+        body.appendChild(hiddenHost);
+        patchOverview();
+        void loadAllForOverview();
+    };
+
+    const loadAllForOverview = async () => {
+        if (overviewFetchStarted) return;
+        overviewFetchStarted = true;
+        const pending = refs.filter(r => !cache.has(r.name));
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < pending.length) {
+                const ref = pending[cursor++];
+                try {
+                    await fetchOne(ref);
+                } catch (err: any) {
+                    summaries.set(ref.name, errorSummary(ref.name, err?.message ?? String(err)));
+                }
+                patchOverview();
+            }
+        };
+        const n = Math.min(OVERVIEW_FETCH_CONCURRENCY, pending.length);
+        if (n > 0) await Promise.all(Array.from({ length: n }, () => worker()));
+    };
+
+    const switchTo = async (view: View) => {
+        current = view;
+        if (select) select.value = view.kind === 'all' ? ALL_PLANS_VALUE : view.ref.name;
+
+        if (view.kind === 'all') {
+            showOverview();
+            return;
+        }
+
+        overview.mounted = null;
+        const ref = view.ref;
         if (cache.has(ref.name)) {
             renderPlan(cache.get(ref.name)!, body);
             return;
@@ -554,12 +713,11 @@ export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: H
         if (select) select.disabled = true;
         showLoadingStage(body, `Loading plan: ${ref.name}…`, { skeleton: true });
         try {
-            const plan = await fetcher(ref);
-            cache.set(ref.name, plan);
-            // Guard against races: only render if the user is still on this ref.
-            if (current === ref) renderPlan(plan, body);
+            const plan = await fetchOne(ref);
+            if (current.kind === 'plan' && current.ref === ref) renderPlan(plan, body);
         } catch (err: any) {
-            if (current === ref) {
+            summaries.set(ref.name, errorSummary(ref.name, err?.message ?? String(err)));
+            if (current.kind === 'plan' && current.ref === ref) {
                 showStatusInto(body, 'Could not load Terraform plan',
                     err?.message ?? String(err), 'error');
             }
@@ -569,7 +727,14 @@ export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: H
     };
 
     if (refs.length > 1) {
-        select = renderSelector(refs, current.name, (next) => { void switchTo(next); });
+        select = renderSelector(refs, defaultSelectorValue(refs), value => {
+            if (value === ALL_PLANS_VALUE) {
+                void switchTo({ kind: 'all' });
+                return;
+            }
+            const next = refs.find(r => r.name === value);
+            if (next) void switchTo({ kind: 'plan', ref: next });
+        });
         selectorBar.appendChild(el('label', { class: 'plan-selector', attrs: { for: 'plan-select' } }, [
             el('span', { class: 'plan-selector-label', text: 'Plan' }),
             select,
@@ -579,24 +744,231 @@ export async function renderPlans(refs: PlanRef[], fetcher: PlanFetcher, root: H
     await switchTo(current);
 }
 
-function renderSelector(refs: PlanRef[], currentName: string, onSelect: (ref: PlanRef) => void): HTMLSelectElement {
+function renderSelector(refs: PlanRef[], currentValue: string, onChange: (value: string) => void): HTMLSelectElement {
     const select = el('select', {
         class: 'plan-selector-input',
         attrs: { id: 'plan-select', 'aria-label': 'Select Terraform plan' },
     });
 
+    const all = el('option', {
+        text: `All plans (${refs.length})`,
+        attrs: { value: ALL_PLANS_VALUE },
+    });
+    if (currentValue === ALL_PLANS_VALUE) all.selected = true;
+    select.appendChild(all);
+
     for (const ref of refs) {
         const opt = el('option', { text: ref.name, attrs: { value: ref.name } });
-        if (ref.name === currentName) opt.selected = true;
+        if (ref.name === currentValue) opt.selected = true;
         select.appendChild(opt);
     }
 
-    select.addEventListener('change', () => {
-        const next = refs.find(r => r.name === select.value);
-        if (next) onSelect(next);
+    select.addEventListener('change', () => onChange(select.value));
+    return select;
+}
+
+function fillOverviewMeta(host: HTMLElement, total: number, summaries: PlanSummary[]) {
+    const loaded = summaries.filter(s => s.status === 'loaded');
+    const withChanges = loaded.filter(s => s.hasChanges).length;
+    const noChanges = loaded.filter(s => s.hasChanges === false).length;
+    const pending = summaries.filter(s => s.status === 'pending').length;
+    const failed = summaries.filter(s => s.status === 'error').length;
+
+    host.appendChild(el('span', {
+        class: 'meta-pill',
+        text: `${total} ${total === 1 ? 'plan' : 'plans'}`,
+    }));
+    host.appendChild(el('span', {
+        class: 'meta-pill',
+        text: `${withChanges} with changes`,
+    }));
+    host.appendChild(el('span', {
+        class: 'meta-pill',
+        text: `${noChanges} no changes`,
+    }));
+    const versions = uniqueTerraformVersions(summaries);
+    if (versions.length === 1) {
+        host.appendChild(el('span', { class: 'meta-pill', text: `Terraform ${versions[0]}` }));
+    } else if (versions.length > 1) {
+        host.appendChild(el('span', { class: 'meta-pill', text: 'Mixed Terraform versions' }));
+    }
+    if (pending > 0) {
+        host.appendChild(el('span', {
+            class: 'meta-pill',
+            text: `Loading ${loaded.length + failed}/${total}…`,
+        }));
+    }
+    if (failed > 0) {
+        host.appendChild(el('span', {
+            class: 'meta-pill meta-pill-error',
+            text: `${failed} failed to load`,
+        }));
+    }
+}
+
+function renderOverviewSummary(session: OverviewSession, onChange: () => void): HTMLElement {
+    let counts = emptyCounts();
+    for (const s of session.summaries.values()) counts = addCounts(counts, s.counts);
+    return renderActionCards(counts, session.activeFilters, kind => {
+        if (session.activeFilters.has(kind)) session.activeFilters.delete(kind);
+        else session.activeFilters.add(kind);
+        onChange();
+    });
+}
+
+function renderOverviewControls(session: OverviewSession, onChange: () => void): HTMLElement {
+    const search = el('input', {
+        class: 'search',
+        attrs: {
+            type: 'search',
+            placeholder: 'Filter plans, resource addresses or types…',
+            'aria-label': 'Filter plans',
+            value: session.searchTerm,
+        },
+    }) as HTMLInputElement;
+
+    let debounce: number | undefined;
+    search.addEventListener('input', () => {
+        if (debounce !== undefined) window.clearTimeout(debounce);
+        debounce = window.setTimeout(() => {
+            session.searchTerm = search.value.trim();
+            onChange();
+        }, 80);
     });
 
-    return select;
+    const toggle = el('label', { class: 'toggle' }, [
+        el('input', {
+            class: 'toggle-input',
+            attrs: {
+                type: 'checkbox',
+                'aria-label': 'Only plans with changes',
+                ...(session.onlyWithChanges ? { checked: '' } : {}),
+            },
+        }),
+        el('span', { class: 'toggle-track', attrs: { 'aria-hidden': 'true' } }),
+        el('span', { text: 'Only plans with changes' }),
+    ]);
+    const checkbox = toggle.querySelector('.toggle-input') as HTMLInputElement;
+    checkbox.addEventListener('change', () => {
+        session.onlyWithChanges = checkbox.checked;
+        onChange();
+    });
+
+    const expandAll = el('button', { class: 'control-btn', text: 'Expand all', attrs: { type: 'button' } });
+    expandAll.addEventListener('click', () => {
+        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details').forEach(d => { d.open = true; });
+    });
+    const collapseAll = el('button', { class: 'control-btn', text: 'Collapse all', attrs: { type: 'button' } });
+    collapseAll.addEventListener('click', () => {
+        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details').forEach(d => { d.open = false; });
+    });
+
+    return el('section', { class: 'controls' }, [
+        search,
+        toggle,
+        el('div', { class: 'control-buttons' }, [expandAll, collapseAll]),
+    ]);
+}
+
+function renderOverviewList(
+    session: OverviewSession,
+    onOpen: (name: string) => void,
+): HTMLElement {
+    const filter: OverviewFilter = {
+        search: session.searchTerm,
+        onlyWithChanges: session.onlyWithChanges,
+        actionFilters: session.activeFilters,
+    };
+    const groups = visibleGroups(session.groups, session.summaries, filter);
+    const list = el('div', { class: 'overview-list' });
+
+    if (groups.length === 0) {
+        const pending = [...session.summaries.values()].some(s => s.status === 'pending');
+        list.appendChild(el('div', {
+            class: 'empty',
+            text: pending
+                ? 'Loading plans…'
+                : 'No plans match the current filter.',
+        }));
+        return list;
+    }
+
+    for (const group of groups) {
+        const flatten = !group.key
+            || (group.items.length === 1 && group.items[0].label === group.items[0].name);
+        if (flatten) {
+            for (const item of group.items) {
+                const summary = session.summaries.get(item.name);
+                if (summary) list.appendChild(renderPlanRow(summary, item.name, () => onOpen(item.name)));
+            }
+            continue;
+        }
+
+        let counts = emptyCounts();
+        for (const item of group.items) {
+            const s = session.summaries.get(item.name);
+            if (s) counts = addCounts(counts, s.counts);
+        }
+        const summaryEl = el('summary', { class: 'module-summary' }, [
+            el('span', { class: 'module-label', text: group.key }),
+            renderCountPills(counts),
+        ]);
+        const details = el('details', { class: 'module-node plan-group' });
+        details.open = true;
+        details.appendChild(summaryEl);
+        const body = el('div', { class: 'module-body' });
+        for (const item of group.items) {
+            const summary = session.summaries.get(item.name);
+            if (summary) body.appendChild(renderPlanRow(summary, item.label, () => onOpen(item.name)));
+        }
+        details.appendChild(body);
+        list.appendChild(details);
+    }
+
+    return list;
+}
+
+function renderPlanRow(summary: PlanSummary, label: string, onOpen: () => void): HTMLElement {
+    const kind = summary.status === 'loaded' ? dominantAction(summary.counts) : null;
+    const kindClass = kind ? ` plan-row-${kind}` : summary.status === 'error' ? ' plan-row-error' : ' plan-row-pending';
+    const row = el('button', {
+        class: `plan-row${kindClass}`,
+        attrs: {
+            type: 'button',
+            'data-plan-name': summary.name,
+            'aria-label': `Open plan ${summary.name}`,
+        },
+    }, [
+        el('code', { class: 'plan-row-name', text: label }),
+    ]);
+
+    if (summary.status === 'pending') {
+        row.appendChild(el('span', { class: 'plan-row-status', text: 'Loading…' }));
+    } else if (summary.status === 'error') {
+        row.appendChild(el('span', {
+            class: 'plan-row-status plan-row-status-error',
+            text: summary.error || 'Failed to load',
+        }));
+    } else {
+        row.appendChild(renderCountPills(summary.counts));
+    }
+
+    row.addEventListener('click', onOpen);
+    return row;
+}
+
+function renderHiddenBanner(count: number, onShowAll: () => void): HTMLElement {
+    const noun = count === 1 ? 'plan' : 'plans';
+    const btn = el('button', {
+        class: 'hidden-plans-action',
+        text: 'Show all',
+        attrs: { type: 'button' },
+    });
+    btn.addEventListener('click', onShowAll);
+    return el('div', { class: 'hidden-plans' }, [
+        el('span', { text: `${count} ${noun} with no changes ${count === 1 ? 'is' : 'are'} hidden` }),
+        btn,
+    ]);
 }
 
 function showStatusInto(node: HTMLElement, title: string, message: string, kind: 'loading' | 'error' | 'empty') {

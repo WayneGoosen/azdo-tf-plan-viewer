@@ -19,14 +19,15 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Boolean task inputs arrive as "true"/"false". Missing or blank means ON
- * so a forgotten input never stores raw secrets.
+ * Boolean task inputs arrive as "true"/"false". Missing, blank, typos, or
+ * unresolved variables stay ON so a forgotten or malformed input never
+ * stores raw secrets. Only an explicit case-insensitive `false` opts out.
  */
 export function shouldRedactSensitive(raw: string | undefined): boolean {
     if (raw === undefined || raw.trim() === '') {
         return true;
     }
-    return raw.trim().toUpperCase() === 'TRUE';
+    return raw.trim().toUpperCase() !== 'FALSE';
 }
 
 /**
@@ -41,7 +42,9 @@ export function redactValue(value: unknown, sensitive: unknown): unknown {
         return value.map((item, i) => redactValue(item, sensitive[i]));
     }
     if (isPlainObject(value) && isPlainObject(sensitive)) {
-        const out: Record<string, unknown> = {};
+        // Null prototype so a Terraform map key named `__proto__` is kept as
+        // an own property instead of invoking Object.prototype.__proto__.
+        const out: Record<string, unknown> = Object.create(null);
         for (const key of Object.keys(value)) {
             out[key] = redactValue(value[key], sensitive[key]);
         }

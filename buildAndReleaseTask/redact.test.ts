@@ -23,10 +23,16 @@ describe('shouldRedactSensitive', () => {
         expect(shouldRedactSensitive(' True ')).toBe(true);
     });
 
-    it('treats any other value as false', () => {
+    it('only disables redaction for an explicit false', () => {
         expect(shouldRedactSensitive('false')).toBe(false);
         expect(shouldRedactSensitive('FALSE')).toBe(false);
-        expect(shouldRedactSensitive('0')).toBe(false);
+        expect(shouldRedactSensitive(' False ')).toBe(false);
+    });
+
+    it('keeps redaction on for typos and other non-false values', () => {
+        expect(shouldRedactSensitive('tru')).toBe(true);
+        expect(shouldRedactSensitive('0')).toBe(true);
+        expect(shouldRedactSensitive('$(redactSensitive)')).toBe(true);
     });
 });
 
@@ -91,6 +97,17 @@ describe('redactValue', () => {
             SENSITIVE_PLACEHOLDER,
             'c',
         ]);
+    });
+
+    it('preserves a __proto__ map key alongside a sensitive sibling', () => {
+        const value = JSON.parse('{"__proto__":"public","password":"s3cret"}');
+        const sensitive = JSON.parse('{"__proto__":false,"password":true}');
+        const out = redactValue(value, sensitive) as Record<string, unknown>;
+        expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(true);
+        expect(out['__proto__']).toBe('public');
+        expect(out.password).toBe(SENSITIVE_PLACEHOLDER);
+        expect(JSON.stringify(out)).toContain('"__proto__":"public"');
+        expect(JSON.stringify(out)).not.toContain('s3cret');
     });
 
     it('does not invent keys that exist only on the sensitive marker', () => {

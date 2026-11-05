@@ -90,8 +90,11 @@ as a fallback for older agents.
 ## How it works
 
 The task uploads the plan JSON as a build attachment under the type
-`terraform-plan-viewer.plan`. The tab fetches the attachment via Azure DevOps's
-Build REST API, parses it client-side, and renders the diff entirely in the
-browser. No server, no database, no third-party endpoint — plan data sits in
-your Azure DevOps organization the same way build logs do. See
-[Privacy & security](security.md) for the full picture.
+`terraform-plan-viewer.plan`. By default it redacts Terraform-marked sensitive
+values and keeps only the fields the tab reads (`format_version`,
+`terraform_version`, `resource_changes`, `output_changes`). The tab fetches the
+attachment via Azure DevOps's Build REST API, parses it client-side, and
+renders the diff entirely in the browser. No server, no database, no
+third-party endpoint — plan data sits in your Azure DevOps organization the
+same way build logs do. See [Privacy & security](security.md) for the full
+picture, and [`redactSensitive`](task-inputs.md#redactsensitive) to opt out.

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { looksLikeBinaryPlan, validateAttachmentName, validateCliTool, KNOWN_CLIS } from './validation';
+import { preparePlanForUpload, shouldRedactSensitive } from './redact';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
@@ -58,6 +59,7 @@ async function run() {
         const planPath = tl.getInput('planPath', true);
         const attachmentName = tl.getInput('attachmentName', false) || 'terraform-plan';
         const cliTool = (tl.getInput('cliTool', false) || 'auto').trim();
+        const redactSensitive = shouldRedactSensitive(tl.getInput('redactSensitive', false));
 
         if (!planPath) {
             tl.setResult(tl.TaskResult.Failed, 'planPath is required (path to a Terraform plan file, binary or JSON).');
@@ -95,12 +97,26 @@ async function run() {
         const resourceCount = Array.isArray(parsed?.resource_changes) ? parsed.resource_changes.length : 0;
         console.log(`Terraform version: ${parsed?.terraform_version ?? 'unknown'}`);
         console.log(`Resource changes: ${resourceCount}`);
-        console.log(`Plan size: ${(json.length / 1024).toFixed(1)} KiB`);
+
+        let uploadJson: string;
+        if (redactSensitive) {
+            const prepared = preparePlanForUpload(parsed, true);
+            uploadJson = JSON.stringify(prepared);
+            const beforeKiB = json.length / 1024;
+            const afterKiB = uploadJson.length / 1024;
+            const savedPct = json.length > 0 ? (1 - uploadJson.length / json.length) * 100 : 0;
+            console.log('Redacting Terraform-marked sensitive values and dropping unused plan fields.');
+            console.log(`Plan size: ${beforeKiB.toFixed(1)} KiB → ${afterKiB.toFixed(1)} KiB (${savedPct.toFixed(0)}% smaller)`);
+        } else {
+            uploadJson = json;
+            console.log('redactSensitive=false: attaching the full unredacted plan JSON.');
+            console.log(`Plan size: ${(json.length / 1024).toFixed(1)} KiB`);
+        }
 
         const stagingDir = path.join(tl.getVariable('Agent.TempDirectory') || '.', 'terraform-plan-viewer');
         fs.mkdirSync(stagingDir, { recursive: true });
         const stagedPath = path.join(stagingDir, `${attachmentName}.json`);
-        fs.writeFileSync(stagedPath, json, 'utf8');
+        fs.writeFileSync(stagedPath, uploadJson, 'utf8');
 
         // Attachment type is a contract between this task and the tab — keep both in sync.
         tl.addAttachment(ATTACHMENT_TYPE, attachmentName, stagedPath);

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "npm run clean && npm run build:task && npm run build:tab && npm run copy-assets && npm run install-task-deps",
-    "build:task": "tsc",
+    "build:task": "tsc -p tsconfig.build.json",
     "build:tab": "webpack --mode production",
     "copy-assets": "npm run copy-task-assets && npm run copy-tab-assets",
     "copy-task-assets": "copyfiles -f buildAndReleaseTask/*.json buildAndReleaseTask/*.png dist/buildAndReleaseTask/",
@@ -16,7 +16,10 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tab": "tsc --noEmit -p tsconfig.tab.json",
     "dev:prepare": "npm run build:tab && npm run copy-tab-assets && rimraf .dev && copyfiles -u 2 \"dist/tab/**/*\" .dev/ && copyfiles -u 1 \"dev-fixtures/**/*\" .dev/",
-    "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html"
+    "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
   },
   "keywords": [
     "azure-devops",
@@ -29,12 +32,18 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "@eslint/js": "^9.17.0",
     "@types/node": "^24.10.0",
+    "@vitest/ui": "^2.1.8",
     "copyfiles": "^2.4.1",
+    "eslint": "^9.39.5",
+    "happy-dom": "^21.0.1",
     "rimraf": "^5.0.5",
     "tfx-cli": "^0.23.1",
     "ts-loader": "^9.5.7",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.17.0",
+    "vitest": "^2.1.8",
     "webpack": "^5.106.2",
     "webpack-cli": "^7.0.2"
   },

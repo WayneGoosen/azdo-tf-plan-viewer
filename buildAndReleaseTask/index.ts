@@ -2,24 +2,16 @@ import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { looksLikeBinaryPlan, validateAttachmentName, validateCliTool, KNOWN_CLIS } from './validation';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
-const VALID_NAME = /^[A-Za-z0-9_-]+$/;
-
-// Terraform binary plan files are ZIP archives — they always start with the
-// ZIP local-file-header magic bytes "PK\x03\x04". JSON plans never do.
-function looksLikeBinaryPlan(buf: Buffer): boolean {
-    return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
-}
-
-const KNOWN_CLIS = ['terraform', 'tofu'];
 
 // Resolves the CLI used to convert binary plans. Only the terraform/tofu found
 // on the agent's PATH is ever run -- cliTool is never treated as a path, so a
 // value from a less trusted source (e.g. a queue-time variable) can't point the
 // task at an arbitrary file. 'auto' prefers terraform and falls back to tofu.
 function resolveCli(cliTool: string): string {
-    if (cliTool !== 'auto' && !KNOWN_CLIS.includes(cliTool)) {
+    if (!validateCliTool(cliTool)) {
         throw new Error(`Invalid cliTool "${cliTool}". Use 'auto', 'terraform' or 'tofu'.`);
     }
     for (const name of cliTool === 'auto' ? KNOWN_CLIS : [cliTool]) {
@@ -75,7 +67,7 @@ async function run() {
             tl.setResult(tl.TaskResult.Failed, `Plan file not found: ${planPath}`);
             return;
         }
-        if (!VALID_NAME.test(attachmentName)) {
+        if (!validateAttachmentName(attachmentName)) {
             tl.setResult(tl.TaskResult.Failed,
                 `Invalid attachmentName "${attachmentName}". Allowed characters: letters, digits, underscore, hyphen.`);
             return;

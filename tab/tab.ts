@@ -19,6 +19,18 @@ import {
     BuildServiceIds,
     IBuildPageDataService,
 } from 'azure-devops-extension-api/Build';
+import {
+    type ActionKind,
+    type AttrDiff,
+    type ModuleNode,
+    type ResourceChange,
+    type ResourceDiff,
+    buildTree,
+    classifyAction,
+    computeDiff,
+    formatReplacePath,
+    formatValue,
+} from './planLogic';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
@@ -32,26 +44,6 @@ interface TerraformPlan {
     resource_drift?: ResourceChange[];
 }
 
-interface ResourceChange {
-    address: string;
-    module_address?: string;
-    mode?: string;
-    type: string;
-    name: string;
-    provider_name?: string;
-    change: Change;
-}
-
-interface Change {
-    actions: string[];
-    before: unknown;
-    after: unknown;
-    after_unknown?: unknown;
-    before_sensitive?: unknown;
-    after_sensitive?: unknown;
-    replace_paths?: unknown[][];
-}
-
 interface OutputChange {
     actions: string[];
     before: unknown;
@@ -59,27 +51,6 @@ interface OutputChange {
     after_unknown?: boolean;
     before_sensitive?: boolean;
     after_sensitive?: boolean;
-}
-
-type ActionKind = 'create' | 'update' | 'delete' | 'recreate' | 'read' | 'noop';
-
-interface ModuleNode {
-    label: string;
-    resources: ResourceChange[];
-    children: Map<string, ModuleNode>;
-    counts: Record<ActionKind, number>;
-}
-
-interface AttrDiff {
-    key: string;
-    kind: '+' | '-' | '~' | '=';
-    before?: string;
-    after?: string;
-}
-
-interface ResourceDiff {
-    changed: AttrDiff[];
-    unchanged: AttrDiff[];
 }
 
 // Loose attachment shape — _links is typed `any` upstream, so we narrow here.
@@ -100,16 +71,6 @@ interface PlanRef {
 
 // ------------------------------ Classification ------------------------------
 
-function classifyAction(actions: string[]): ActionKind {
-    const has = (a: string) => actions.includes(a);
-    if (has('create') && has('delete')) return 'recreate';
-    if (has('create')) return 'create';
-    if (has('delete')) return 'delete';
-    if (has('update')) return 'update';
-    if (has('read')) return 'read';
-    return 'noop';
-}
-
 const ACTION_LABEL: Record<ActionKind, string> = {
     create: 'Create',
     update: 'Update',
@@ -127,251 +88,6 @@ const ACTION_GLYPH: Record<ActionKind, string> = {
     read: '?',
     noop: '·',
 };
-
-function emptyCounts(): Record<ActionKind, number> {
-    return { create: 0, update: 0, delete: 0, recreate: 0, read: 0, noop: 0 };
-}
-
-// ------------------------------- Module tree --------------------------------
-
-function splitModuleAddress(addr: string | undefined): string[] {
-    if (!addr) return [];
-    return addr.split(/\.(?=module\.)/);
-}
-
-function buildTree(resources: ResourceChange[]): ModuleNode {
-    const root: ModuleNode = {
-        label: '',
-        resources: [],
-        children: new Map(),
-        counts: emptyCounts(),
-    };
-    for (const r of resources) {
-        let node = root;
-        for (const part of splitModuleAddress(r.module_address)) {
-            let child = node.children.get(part);
-            if (!child) {
-                child = { label: part, resources: [], children: new Map(), counts: emptyCounts() };
-                node.children.set(part, child);
-            }
-            node = child;
-        }
-        node.resources.push(r);
-    }
-    rollUpCounts(root);
-    return root;
-}
-
-function rollUpCounts(node: ModuleNode): Record<ActionKind, number> {
-    const counts = emptyCounts();
-    for (const r of node.resources) counts[classifyAction(r.change.actions)]++;
-    for (const child of node.children.values()) {
-        const c = rollUpCounts(child);
-        (Object.keys(counts) as ActionKind[]).forEach(k => { counts[k] += c[k]; });
-    }
-    node.counts = counts;
-    return counts;
-}
-
-// ---------------------------------- Diff ------------------------------------
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-    return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
-// Recursive diff walker.
-//
-// Plan attributes can be deeply nested (objects, arrays of blocks like
-// `access_policy = [...]`). Rendering the whole nested value as a single
-// pretty-printed JSON blob makes it impossible to spot the one field that
-// actually changed. Instead, we walk before/after/*_sensitive/after_unknown
-// in parallel and emit one row per leaf path (`tags.owner`,
-// `access_policy[0].permissions`). Sensitive / unknown markers redact at
-// whatever depth Terraform set them.
-function computeDiff(change: Change): ResourceDiff {
-    const out: AttrDiff[] = [];
-    walkDiff(
-        '',
-        change.before,
-        change.after,
-        change.before_sensitive,
-        change.after_sensitive,
-        change.after_unknown,
-        change.before !== undefined,
-        change.after !== undefined,
-        out,
-    );
-    out.sort((a, b) => a.key.localeCompare(b.key));
-
-    // Split into top-level "fully unchanged" vs "has at least one change in
-    // its subtree". The footer only counts top-level attrs so the user's
-    // mental model matches `tf plan`'s `(N unchanged attributes hidden)`.
-    const groups = new Map<string, AttrDiff[]>();
-    for (const e of out) {
-        const top = topKey(e.key);
-        let bucket = groups.get(top);
-        if (!bucket) { bucket = []; groups.set(top, bucket); }
-        bucket.push(e);
-    }
-
-    const changed: AttrDiff[] = [];
-    const unchanged: AttrDiff[] = [];
-    for (const [top, entries] of groups) {
-        const anyChange = entries.some(e => e.kind !== '=');
-        if (anyChange) {
-            for (const e of entries) if (e.kind !== '=') changed.push(e);
-        } else {
-            // Collapse fully-unchanged top-level attrs back into a single
-            // summary row so the footer reads "name: value", not one row
-            // per deep leaf.
-            unchanged.push(summarizeUnchanged(top, entries));
-        }
-    }
-    return { changed, unchanged };
-}
-
-function topKey(path: string): string {
-    const dot = path.indexOf('.');
-    const bracket = path.indexOf('[');
-    if (dot === -1 && bracket === -1) return path;
-    if (dot === -1) return path.slice(0, bracket);
-    if (bracket === -1) return path.slice(0, dot);
-    return path.slice(0, Math.min(dot, bracket));
-}
-
-function summarizeUnchanged(topKey: string, entries: AttrDiff[]): AttrDiff {
-    // If a single leaf, use it as-is. Otherwise show the top-level value as
-    // "{…}" / "[…]" so the unchanged section stays compact.
-    if (entries.length === 1 && entries[0].key === topKey) return entries[0];
-    const isArr = entries.some(e => e.key.startsWith(`${topKey}[`));
-    const placeholder = isArr ? '[…]' : '{…}';
-    return { key: topKey, kind: '=', before: placeholder, after: placeholder };
-}
-
-function walkDiff(
-    path: string,
-    bRaw: unknown,
-    aRaw: unknown,
-    bSensRaw: unknown,
-    aSensRaw: unknown,
-    aUnkRaw: unknown,
-    bHas: boolean,
-    aHas: boolean,
-    out: AttrDiff[],
-): void {
-    const bSens = bSensRaw === true;
-    const aSens = aSensRaw === true;
-    const aUnk = aUnkRaw === true;
-
-    // Sensitivity / unknown markers at this path stop recursion: Terraform
-    // is telling us "treat this subtree as one opaque value".
-    const canRecurse = !bSens && !aSens && !aUnk;
-
-    const bIsObj = isPlainObject(bRaw);
-    const aIsObj = isPlainObject(aRaw);
-    const bIsArr = Array.isArray(bRaw);
-    const aIsArr = Array.isArray(aRaw);
-
-    // Recurse when both sides have the same container shape, or when one
-    // side is missing and the other is a container (create/delete of a
-    // nested block). Type mismatches (object ↔ scalar) fall through to the
-    // leaf branch so the change is reported as a single replacement row.
-    if (canRecurse && (bIsObj || aIsObj) && !bIsArr && !aIsArr) {
-        const bObj = (bIsObj ? bRaw : {}) as Record<string, unknown>;
-        const aObj = (aIsObj ? aRaw : {}) as Record<string, unknown>;
-        const bSensObj = isPlainObject(bSensRaw) ? bSensRaw : {};
-        const aSensObj = isPlainObject(aSensRaw) ? aSensRaw : {};
-        const aUnkObj = isPlainObject(aUnkRaw) ? aUnkRaw : {};
-        const subKeys = new Set<string>([
-            ...Object.keys(bObj),
-            ...Object.keys(aObj),
-            ...Object.keys(aUnkObj),
-            ...Object.keys(bSensObj),
-            ...Object.keys(aSensObj),
-        ]);
-        for (const k of subKeys) {
-            const childPath = path ? `${path}.${k}` : k;
-            walkDiff(
-                childPath,
-                bObj[k], aObj[k],
-                bSensObj[k], aSensObj[k], aUnkObj[k],
-                k in bObj, k in aObj,
-                out,
-            );
-        }
-        return;
-    }
-
-    if (canRecurse && (bIsArr || aIsArr) && !bIsObj && !aIsObj) {
-        const bArr = (bIsArr ? bRaw : []) as unknown[];
-        const aArr = (aIsArr ? aRaw : []) as unknown[];
-        const bSensArr = Array.isArray(bSensRaw) ? bSensRaw : [];
-        const aSensArr = Array.isArray(aSensRaw) ? aSensRaw : [];
-        const aUnkArr = Array.isArray(aUnkRaw) ? aUnkRaw : [];
-        const len = Math.max(bArr.length, aArr.length);
-        for (let i = 0; i < len; i++) {
-            walkDiff(
-                `${path}[${i}]`,
-                bArr[i], aArr[i],
-                bSensArr[i], aSensArr[i], aUnkArr[i],
-                i < bArr.length, i < aArr.length,
-                out,
-            );
-        }
-        return;
-    }
-
-    // Leaf. Sensitive flags count as presence even when the underlying
-    // value is missing (write-only attributes).
-    const bPresent = bHas || bSens;
-    const aPresent = aHas || aSens || aUnk;
-    if (!bPresent && !aPresent) return;
-
-    let kind: '+' | '-' | '~' | '=';
-    if (!bPresent && aPresent) kind = '+';
-    else if (bPresent && !aPresent) kind = '-';
-    else if (!deepEqual(bRaw, aRaw)) kind = '~';
-    else kind = '=';
-
-    const before = kind === '+' ? undefined
-        : (bSens ? '(sensitive)' : formatValue(bRaw));
-    const after = kind === '-' ? undefined
-        : (aUnk ? '(known after apply)'
-            : aSens ? '(sensitive)'
-            : formatValue(aRaw));
-
-    out.push({ key: path, kind, before, after });
-}
-
-function formatValue(v: unknown): string {
-    if (v === null) return 'null';
-    if (v === undefined) return '';
-    if (typeof v === 'string') return JSON.stringify(v);
-    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-    return JSON.stringify(v, null, 2);
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-    if (a === b) return true;
-    if (a === null || b === null) return false;
-    if (typeof a !== 'object' || typeof b !== 'object') return false;
-    if (Array.isArray(a) !== Array.isArray(b)) return false;
-    if (Array.isArray(a) && Array.isArray(b)) {
-        if (a.length !== b.length) return false;
-        for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
-        return true;
-    }
-    const ao = a as Record<string, unknown>;
-    const bo = b as Record<string, unknown>;
-    const ak = Object.keys(ao);
-    if (ak.length !== Object.keys(bo).length) return false;
-    for (const k of ak) if (!deepEqual(ao[k], bo[k])) return false;
-    return true;
-}
-
-function formatReplacePath(path: unknown[]): string {
-    return path.map(p => typeof p === 'number' ? `[${p}]` : String(p)).join('.');
-}
 
 // ------------------------------- DOM helpers --------------------------------
 

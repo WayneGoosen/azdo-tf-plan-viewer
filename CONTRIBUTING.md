@@ -50,12 +50,25 @@ This command:
 - Copies static assets (JSON, HTML, CSS, PNG)
 - Installs production dependencies in `dist/buildAndReleaseTask/`
 
+`npm run build` does **not** create the `.vsix`. Use `npm run package` for a production package, or the [dev publisher override](#using-a-dev-publisher-recommended) for a private install.
+
 ### 3. Run Type Checks
 
 ```bash
 npm run typecheck       # Check task code
 npm run typecheck:tab   # Check tab code
 ```
+
+### 4. Run Tests and Lint
+
+```bash
+npm test           # Unit tests (Vitest)
+npm run lint       # ESLint
+```
+
+Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`). Use `npm run test:watch` while iterating.
+
+When adding features or fixing bugs, add coverage for the change. Bug fixes should include a regression test where practical.
 
 ## Local Development
 
@@ -160,7 +173,7 @@ GitVersion automatically calculates the next version based on commit messages. Y
    git checkout -b my-feature-branch
    ```
 
-2. **Make your changes**, commit following Conventional Commits
+2. **Make your changes**, then confirm `npm test`, `npm run lint`, `npm run typecheck`, `npm run typecheck:tab`, and `npm run build` pass. Commit following Conventional Commits.
 
 3. **Push to your fork** (`origin` is your fork, not upstream):
    ```bash
@@ -174,6 +187,8 @@ GitVersion automatically calculates the next version based on commit messages. Y
 When you open a PR, the [`pr.yml` workflow](./.github/workflows/pr.yml) runs automatically:
 
 - ✅ **Typecheck** — `npm run typecheck` and `npm run typecheck:tab`
+- ✅ **Tests** — `npm test`
+- ✅ **Lint** — `npm run lint`
 - ✅ **Build** — `npm run package` produces a `.vsix`
 - ✅ **Marketplace assets verification** — ensures Content.Details, Screenshots, and Icons are bundled correctly
 - ✅ **GitVersion** — calculates the next semantic version based on commits
@@ -189,11 +204,16 @@ All checks must pass before merging.
 azdo-tf-plan-viewer/
 ├── buildAndReleaseTask/     # Azure Pipelines task (Node.js)
 │   ├── task.json            # Task manifest
-│   └── index.ts             # Task entry point
+│   ├── index.ts             # Task entry point
+│   ├── validation.ts        # Pure input-validation helpers
+│   └── index.test.ts        # Task unit tests
 ├── tab/                     # Build results tab (browser UI)
 │   ├── tab.html
 │   ├── tab.ts               # Tab entry point
-│   └── ...
+│   ├── planLogic.ts         # Pure plan classification / diff / tree
+│   └── tab.test.ts          # Plan-logic unit tests
+├── eslint.config.mjs        # ESLint flat config (4-space indent)
+├── vitest.config.ts         # Vitest config
 ├── dev-fixtures/            # Sample plans for local dev
 ├── dist/                    # Build output (gitignored)
 ├── vss-extension.json       # Main extension manifest

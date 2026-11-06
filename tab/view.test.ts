@@ -311,6 +311,23 @@ describe('renderPlans', () => {
         expect(listedRows(root).every(r => r[0] === 'good')).toBe(true);
     });
 
+    it('keeps listing other plans when one attachment has malformed resource_changes', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans(
+            [ref('good'), ref('weird')],
+            async r => {
+                if (r.name === 'weird') return { resource_changes: [{}] } as unknown as ReturnType<typeof planWith>;
+                return changed;
+            },
+            root,
+        );
+        await settled(root);
+        expect(listedRows(root).every(r => r[0] === 'good')).toBe(true);
+        expect(listedRows(root)).toHaveLength(2);
+        expect(root.querySelector('.overview-notice')?.textContent).toMatch(/weird/);
+    });
+
     it('keeps an expanded row open and focused while other plans finish loading', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
@@ -333,6 +350,52 @@ describe('renderPlans', () => {
         expect(first.open).toBe(true);
         expect(document.activeElement).toBe(first.querySelector('summary'));
         expect(listedRows(root)).toHaveLength(4);
+    });
+
+    it('keeps nested unchanged-attributes expansion and focus while other plans load', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const rich = {
+            terraform_version: '1.7.4',
+            format_version: '1.2',
+            resource_changes: [{
+                address: 'azurerm_storage_account.logs',
+                type: 'azurerm_storage_account',
+                name: 'logs',
+                change: {
+                    actions: ['update'],
+                    before: { min_tls_version: 'TLS1_0', location: 'eastus' },
+                    after: { min_tls_version: 'TLS1_2', location: 'eastus' },
+                },
+            }],
+        };
+        let releaseSlow: (plan: ReturnType<typeof planWith>) => void = () => undefined;
+        const slow = new Promise<ReturnType<typeof planWith>>(resolve => { releaseSlow = resolve; });
+        // Slow plan sorts first so its rows insert above the already-open row.
+        const done = renderPlans(
+            [ref('aaa-slow'), ref('zzz-ready')],
+            async r => r.name === 'aaa-slow' ? slow : rich as unknown as ReturnType<typeof planWith>,
+            root,
+        );
+        await vi.waitFor(() => expect(listedRows(root).length).toBe(1));
+
+        const row = root.querySelector<HTMLDetailsElement>('.overview-list details.resource')!;
+        row.open = true;
+        row.dispatchEvent(new Event('toggle'));
+        const nested = row.querySelector<HTMLDetailsElement>('.diff-unchanged')!;
+        expect(nested).not.toBeNull();
+        nested.open = true;
+        nested.querySelector<HTMLElement>('summary')!.focus();
+
+        releaseSlow(changed);
+        await done;
+        await settled(root);
+
+        expect(listedRows(root)).toHaveLength(3);
+        expect(row.isConnected).toBe(true);
+        expect(row.open).toBe(true);
+        expect(row.querySelector<HTMLDetailsElement>('.diff-unchanged')?.open).toBe(true);
+        expect(document.activeElement).toBe(row.querySelector('.diff-unchanged-summary'));
     });
 
     it('builds each row once and its diff only when first opened', async () => {

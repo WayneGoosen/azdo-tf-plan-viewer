@@ -114,6 +114,25 @@ test.describe('All plans overview', () => {
         await expect(after.locator('.resource-summary')).toBeFocused();
     });
 
+    test('keeps a nested "unchanged attributes" section open and focused while plans load', async ({ page }) => {
+        const downloads = await controlDownloads(page, ['staging']);
+        await page.goto('/dev.html');
+
+        const aks = rowsFrom(page, 'prod-apps-aks-cluster-weu').first();
+        await aks.locator('.resource-summary').click();
+        const nested = aks.locator('details.diff-unchanged');
+        await nested.locator('summary').click();
+        await expect(nested).toHaveAttribute('open', '');
+        await nested.locator('summary').focus();
+
+        await downloads.release('staging');
+        await settled(page);
+        await expect(rowsFrom(page, 'staging').first()).toBeVisible();
+        const nestedAfter = rowsFrom(page, 'prod-apps-aks-cluster-weu').first().locator('details.diff-unchanged');
+        await expect(nestedAfter).toHaveAttribute('open', '');
+        await expect(nestedAfter.locator('summary')).toBeFocused();
+    });
+
     test('keeps the reading position when an earlier plan finishes loading', async ({ page }) => {
         await page.setViewportSize({ width: 1200, height: 500 });
         const downloads = await controlDownloads(page, ['prod-apps-aks-cluster-weu']);

@@ -542,3 +542,4 @@
         .status-error .status-title { color: var(--plan-delete); }
         .status-message { color: var(--plan-text-muted); max-width: 480px; }
         .empty { color: var(--plan-text-muted); font-style: italic; }
+        .empty[hidden] { display: none; }

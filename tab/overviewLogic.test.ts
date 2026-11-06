@@ -17,6 +17,7 @@ import {
     noopRowCount,
     pendingSummary,
     planId,
+    planShapeError,
     plansHiddenFromSelector,
     rowMatches,
     shouldShowOverview,
@@ -219,6 +220,25 @@ describe('hiding no-change plans from the dropdown', () => {
 
     it('never hides the plan currently shown', () => {
         expect([...plansHiddenFromSelector([quiet, quietFlagged], true, 'q')]).toEqual(['q2']);
+    });
+});
+
+describe('planShapeError', () => {
+    it('accepts real plans, including ones with no changes listed', () => {
+        expect(planShapeError({ resource_changes: [rc('a.b', 'a', ['create'])] })).toBeNull();
+        expect(planShapeError({ format_version: '1.2' })).toBeNull();
+        expect(planShapeError({ output_changes: { url: { actions: ['update'] } } })).toBeNull();
+    });
+
+    it('explains what is wrong with JSON that is not a plan', () => {
+        expect(planShapeError(null)).toBe('expected a JSON object');
+        expect(planShapeError([1])).toBe('expected a JSON object');
+        expect(planShapeError({ resource_changes: {} })).toBe('resource_changes is not a list');
+        expect(planShapeError({ resource_changes: [{ type: 'a' }] })).toBe('resource_changes[0] has no address or type');
+        expect(planShapeError({ resource_changes: [{ address: 'a.b', type: 'a', change: { actions: 'create' } }] }))
+            .toBe('resource_changes[0] has no change.actions list');
+        expect(planShapeError({ output_changes: [] })).toBe('output_changes is not an object');
+        expect(planShapeError({ output_changes: { url: {} } })).toBe('output_changes.url has no actions list');
     });
 });
 

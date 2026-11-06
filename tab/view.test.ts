@@ -240,8 +240,61 @@ describe('renderPlans', () => {
         const root = document.getElementById('root')!;
         await renderPlans([ref('a'), ref('b')], async () => noChange, root);
         await settled(root);
-        expect(root.querySelector('.overview-list .empty')?.textContent)
+        expect(root.querySelector('.tree > .empty')?.textContent)
             .toMatch(/No resource changes in any plan/);
+    });
+
+    it('does not give the all-clear when some plans failed to load', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans(
+            [ref('quiet'), ref('broken')],
+            async r => { if (r.name === 'broken') throw new Error('HTTP 500'); return noChange; },
+            root,
+        );
+        await settled(root);
+        const msg = root.querySelector('.tree > .empty')?.textContent ?? '';
+        expect(msg).not.toMatch(/Infrastructure matches/);
+        expect(msg).toMatch(/1 plan could not be loaded, so the result is incomplete/);
+    });
+
+    it('says so when no plan could be loaded at all', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('a'), ref('b')], async () => { throw new Error('HTTP 500'); }, root);
+        await settled(root);
+        expect(root.querySelector('.tree > .empty')?.textContent)
+            .toBe('None of the plans could be loaded, so their changes are unknown.');
+    });
+
+    it('keeps the overview working when an attachment is JSON but not a plan', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const bad: Record<string, unknown> = {
+            'null-plan': null,
+            'bad-list': { resource_changes: 'nope' },
+            'no-actions': { resource_changes: [{ address: 'a.b', type: 'a', name: 'b', change: {} }] },
+        };
+        await renderPlans(
+            [ref('good'), ...Object.keys(bad).map(n => ref(n))],
+            async r => (r.name === 'good' ? changed : bad[r.name]) as ReturnType<typeof planWith>,
+            root,
+        );
+        await settled(root);
+        // The good plan still renders; the three bad ones are reported, not fatal.
+        expect(listedRows(root).map(r => r[0])).toEqual(['good', 'good']);
+        const notice = root.querySelector('.overview-notice')?.textContent ?? '';
+        expect(notice).toMatch(/3 plans could not be loaded/);
+        expect(notice).toMatch(/resource_changes is not a list/);
+        expect(notice).toMatch(/expected a JSON object/);
+        expect(notice).toMatch(/has no change\.actions list/);
+    });
+
+    it('shows a clear error for a malformed single plan', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('only')], async () => ({ resource_changes: 42 }) as unknown as ReturnType<typeof planWith>, root);
+        expect(root.textContent).toMatch(/not a Terraform JSON plan: resource_changes is not a list/);
     });
 
     it('lists plans that failed to load', async () => {
@@ -276,10 +329,58 @@ describe('renderPlans', () => {
         await settled(root);
 
         const first = root.querySelector<HTMLDetailsElement>('.overview-list details.resource')!;
-        expect(first).not.toBe(row); // list was rebuilt
+        expect(first).toBe(row); // same element reused, not rebuilt
         expect(first.open).toBe(true);
         expect(document.activeElement).toBe(first.querySelector('summary'));
         expect(listedRows(root)).toHaveLength(4);
+    });
+
+    it('builds each row once and its diff only when first opened', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const gates: Array<() => void> = [];
+        const done = renderPlans(
+            ['a', 'b', 'c'].map(n => ref(n)),
+            r => r.name === 'a'
+                ? Promise.resolve(changed)
+                : new Promise(res => gates.push(() => res(changed))),
+            root,
+        );
+        await vi.waitFor(() => expect(listedRows(root).length).toBe(2));
+        const firstRows = [...root.querySelectorAll('.overview-list details.resource')];
+        // Collapsed rows carry no diff yet.
+        expect(firstRows[0].querySelector('.resource-body')).toBeNull();
+
+        gates.forEach(g => g());
+        await done;
+        await settled(root);
+        const after = [...root.querySelectorAll('.overview-list details.resource')];
+        expect(after).toHaveLength(6);
+        expect(after.slice(0, 2)).toEqual(firstRows); // earlier rows untouched by later loads
+
+        const row = after[0] as HTMLDetailsElement;
+        row.open = true;
+        row.dispatchEvent(new Event('toggle'));
+        expect(row.querySelectorAll('.resource-body')).toHaveLength(1);
+        row.open = false;
+        row.dispatchEvent(new Event('toggle'));
+        row.open = true;
+        row.dispatchEvent(new Event('toggle'));
+        expect(row.querySelectorAll('.resource-body')).toHaveLength(1); // built once
+    });
+
+    it('Expand all opens visible rows with their diffs; Collapse all closes them', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('a'), ref('b')], async () => changed, root);
+        await settled(root);
+        const btn = (t: string) => [...root.querySelectorAll<HTMLButtonElement>('.control-btn')].find(b => b.textContent === t)!;
+        const rows = () => [...root.querySelectorAll<HTMLDetailsElement>('.overview-list details.resource')];
+
+        btn('Expand all').click();
+        expect(rows().every(r => r.open && r.querySelector('.resource-body'))).toBe(true);
+        btn('Collapse all').click();
+        expect(rows().some(r => r.open)).toBe(false);
     });
 
     it('keeps focus on a summary card after toggling it', async () => {

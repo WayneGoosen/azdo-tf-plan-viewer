@@ -90,6 +90,41 @@ export function duplicateNameSuffixes(
     return out;
 }
 
+function isObject(v: unknown): v is Record<string, unknown> {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Why `plan` can't be summarized or rendered, or null if it has the shape the
+ * tab relies on. An attachment can be valid JSON yet not a Terraform plan
+ * (e.g. `null`, or a `resource_changes` that isn't a list); catching that up
+ * front keeps one bad attachment from breaking the overview for the rest.
+ */
+export function planShapeError(plan: unknown): string | null {
+    if (!isObject(plan)) return 'expected a JSON object';
+    const rcs = plan.resource_changes;
+    if (rcs !== undefined) {
+        if (!Array.isArray(rcs)) return 'resource_changes is not a list';
+        for (let i = 0; i < rcs.length; i++) {
+            const r = rcs[i];
+            if (!isObject(r) || typeof r.address !== 'string' || typeof r.type !== 'string') {
+                return `resource_changes[${i}] has no address or type`;
+            }
+            if (!isObject(r.change) || !Array.isArray(r.change.actions)) {
+                return `resource_changes[${i}] has no change.actions list`;
+            }
+        }
+    }
+    const outs = plan.output_changes;
+    if (outs !== undefined) {
+        if (!isObject(outs)) return 'output_changes is not an object';
+        for (const [name, o] of Object.entries(outs)) {
+            if (!isObject(o) || !Array.isArray(o.actions)) return `output_changes.${name} has no actions list`;
+        }
+    }
+    return null;
+}
+
 export function shouldShowOverview(planCount: number): boolean {
     return planCount > 1;
 }

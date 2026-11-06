@@ -51,6 +51,7 @@ import {
     noopRowCount,
     pendingSummary,
     planId,
+    planShapeError,
     plansHiddenFromSelector,
     rowMatches,
     uniqueTerraformVersions,
@@ -399,7 +400,19 @@ function breakableAddress(address: string): Child[] {
     return out;
 }
 
-function renderResource(r: ResourceChange): HTMLElement {
+/** Bodies of lazily built resource rows, created on first expand. */
+const pendingBodies = new WeakMap<HTMLDetailsElement, () => void>();
+
+/** Build a lazy resource row's diff now (e.g. before opening it from code). */
+function ensureResourceBody(details: HTMLDetailsElement) {
+    pendingBodies.get(details)?.();
+}
+
+/**
+ * One resource row. With `lazyBody`, the diff is built the first time the row
+ * opens — the All plans view can hold thousands of rows, most never expanded.
+ */
+function renderResource(r: ResourceChange, opts: { lazyBody?: boolean } = {}): HTMLDetailsElement {
     const kind = classifyAction(r.change.actions);
     const summary = el('summary', { class: 'resource-summary' }, [
         el('span', { class: `action-badge action-${kind}`, text: ACTION_LABEL[kind] }),
@@ -407,6 +420,22 @@ function renderResource(r: ResourceChange): HTMLElement {
         el('span', { class: 'resource-type', text: r.type }),
     ]);
 
+    const details = el('details', { class: `resource resource-${kind}` });
+    details.appendChild(summary);
+    if (!opts.lazyBody) {
+        details.appendChild(renderResourceBody(r, kind));
+        return details;
+    }
+    const build = () => {
+        pendingBodies.delete(details);
+        details.appendChild(renderResourceBody(r, kind));
+    };
+    pendingBodies.set(details, build);
+    details.addEventListener('toggle', () => { if (details.open) ensureResourceBody(details); });
+    return details;
+}
+
+function renderResourceBody(r: ResourceChange, kind: ActionKind): HTMLElement {
     const body = el('div', { class: 'resource-body' });
 
     const replacePaths = r.change.replace_paths ?? [];
@@ -420,11 +449,7 @@ function renderResource(r: ResourceChange): HTMLElement {
     } else if (kind !== 'noop') {
         body.appendChild(el('div', { class: 'no-diff', text: 'No attribute-level changes reported.' }));
     }
-
-    const details = el('details', { class: `resource resource-${kind}` });
-    details.appendChild(summary);
-    details.appendChild(body);
-    return details;
+    return body;
 }
 
 function renderReplaceReasons(paths: unknown[][]): HTMLElement {
@@ -590,13 +615,19 @@ interface OverviewSession {
     summaries: Map<string, PlanSummary>;
     /** Disambiguating suffix per plan id for attachments sharing a name. */
     nameSuffixes: Map<string, string>;
-    /** Row keys the user has expanded; survives re-renders as plans finish loading. */
-    openKeys: Set<string>;
+    /**
+     * One element per resource row, built once and reused on every update, so
+     * a row keeps its expanded state (and nested sections, and focus) while
+     * other plans load, and each diff is built at most once.
+     */
+    rowNodes: Map<string, HTMLDetailsElement>;
     mounted: {
         metaHost: HTMLElement;
         summaryHost: HTMLElement;
         buttonsHost: HTMLElement;
         listHost: HTMLElement;
+        list: HTMLElement;
+        empty: HTMLElement;
         outputsHost: HTMLElement;
         noticeHost: HTMLElement;
     } | null;
@@ -634,7 +665,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         showNoop: false,
         summaries,
         nameSuffixes: duplicateNameSuffixes(refs),
-        openKeys: new Set(),
+        rowNodes: new Map(),
         mounted: null,
     };
 
@@ -693,15 +724,16 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         const existing = inflight.get(id);
         if (existing) return existing;
         const p = fetcher(ref).then(plan => {
+            // Validate and summarize before caching: a cached plan is rendered
+            // on every overview update, so a malformed one must never get in.
+            const problem = planShapeError(plan);
+            if (problem) throw new Error(`Plan attachment "${ref.name}" is not a Terraform JSON plan: ${problem}.`);
+            const summary = loadedSummary(ref.name, plan, id);
             cache.set(id, plan);
-            summaries.set(id, loadedSummary(ref.name, plan, id));
-            inflight.delete(id);
+            summaries.set(id, summary);
             syncSelector();
             return plan;
-        }, err => {
-            inflight.delete(id);
-            throw err;
-        });
+        }).finally(() => inflight.delete(id));
         inflight.set(id, p);
         return p;
     };
@@ -753,7 +785,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
             patchQueued = true;
             return;
         }
-        const { metaHost, summaryHost, buttonsHost, listHost, outputsHost, noticeHost } = overview.mounted;
+        const { metaHost, summaryHost, buttonsHost, listHost, list, empty, outputsHost, noticeHost } = overview.mounted;
         const active = document.activeElement as HTMLElement | null;
         const focusKey = active && body.contains(active) ? active.dataset.focusKey : undefined;
         // Plans finish loading in any order, so rows can appear above what the
@@ -767,9 +799,8 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         clear(summaryHost);
         summaryHost.appendChild(renderOverviewSummary(overview, patchOverview));
         clear(buttonsHost);
-        buttonsHost.appendChild(renderOverviewButtons(overview, rows, patchOverview));
-        clear(listHost);
-        listHost.appendChild(renderOverviewList(overview, rows, filterOf(), openPlan));
+        buttonsHost.appendChild(renderOverviewButtons(overview, rows, list, patchOverview));
+        syncOverviewList(overview, list, empty, rows, filterOf(), openPlan);
         clear(outputsHost);
         const outputs = renderCombinedOutputs(
             loadedRefs().map(r => ({
@@ -785,7 +816,11 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         if (failed.length) noticeHost.appendChild(renderFailedPlans(failed, overview.nameSuffixes));
 
         if (anchor) restoreRowAnchor(listHost, anchor);
-        if (focusKey) {
+        if (active && active.isConnected && body.contains(active)) {
+            // Same element survived (reused rows, nested sections): keep it focused.
+            if (document.activeElement !== active) active.focus({ preventScroll: true });
+        } else if (focusKey) {
+            // Element was rebuilt (cards, buttons): focus its replacement.
             const target = [...body.querySelectorAll<HTMLElement>('[data-focus-key]')]
                 .find(n => n.dataset.focusKey === focusKey);
             if (target && target !== document.activeElement) target.focus({ preventScroll: true });
@@ -798,10 +833,12 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         const metaHost = el('div', { class: 'header-meta' });
         const summaryHost = el('div');
         const buttonsHost = el('div', { class: 'control-buttons' });
-        const listHost = el('div', { class: 'tree' });
+        const list = el('div', { class: 'module-root overview-list' });
+        const empty = el('div', { class: 'empty' });
+        const listHost = el('div', { class: 'tree' }, [empty, list]);
         const outputsHost = el('div');
         const noticeHost = el('div');
-        overview.mounted = { metaHost, summaryHost, buttonsHost, listHost, outputsHost, noticeHost };
+        overview.mounted = { metaHost, summaryHost, buttonsHost, listHost, list, empty, outputsHost, noticeHost };
 
         body.appendChild(el('header', { class: 'header' }, [
             el('h1', { text: 'All plans' }),
@@ -1005,20 +1042,19 @@ function renderOverviewControls(session: OverviewSession, buttonsHost: HTMLEleme
 }
 
 /** Expand / collapse and the unchanged-resources toggle. Re-rendered as plans load. */
-function renderOverviewButtons(session: OverviewSession, rows: ResourceRow[], onChange: () => void): DocumentFragment {
+function renderOverviewButtons(
+    session: OverviewSession,
+    rows: ResourceRow[],
+    list: HTMLElement,
+    onChange: () => void,
+): DocumentFragment {
     const frag = document.createDocumentFragment();
+    // Acts on the rows currently shown; rows hidden by a filter keep their state.
     const setAllOpen = (open: boolean) => {
-        const filter: OverviewFilter = {
-            search: session.searchTerm,
-            actionFilters: session.activeFilters,
-            showNoop: session.showNoop,
-        };
-        for (const r of rows) {
-            if (!rowMatches(r, filter)) continue;
-            if (open) session.openKeys.add(r.key);
-            else session.openKeys.delete(r.key);
+        for (const d of list.querySelectorAll<HTMLDetailsElement>(':scope > details.resource')) {
+            if (open) ensureResourceBody(d);
+            d.open = open;
         }
-        onChange();
     };
 
     const expandAll = el('button', {
@@ -1075,43 +1111,62 @@ function renderPlanTag(label: string, focusKey: string, onOpen: () => void): HTM
     return tag;
 }
 
-function renderOverviewList(
+/** Get the reusable element for a resource row, building it on first use. */
+function overviewRowNode(session: OverviewSession, row: ResourceRow, onOpenPlan: (id: string) => void): HTMLDetailsElement {
+    let details = session.rowNodes.get(row.key);
+    if (details) return details;
+    details = renderResource(row.resource, { lazyBody: true });
+    details.dataset.rowKey = row.key;
+    const summary = details.querySelector('summary')!;
+    summary.dataset.focusKey = `res:${row.key}`;
+    summary.appendChild(renderPlanTag(row.planLabel, `tag:${row.key}`, () => onOpenPlan(row.planId)));
+    session.rowNodes.set(row.key, details);
+    return details;
+}
+
+/**
+ * Bring the list in line with the rows that match the filter, reusing existing
+ * elements. Rows already in place aren't touched, so their open state, nested
+ * sections and focus are unaffected by background updates.
+ */
+function syncOverviewList(
     session: OverviewSession,
+    list: HTMLElement,
+    empty: HTMLElement,
     rows: ResourceRow[],
     filter: OverviewFilter,
     onOpenPlan: (id: string) => void,
-): HTMLElement {
-    const visible = rows.filter(r => rowMatches(r, filter));
-    const list = el('div', { class: 'module-root overview-list' });
+) {
+    const nodes = rows.filter(r => rowMatches(r, filter)).map(r => overviewRowNode(session, r, onOpenPlan));
+    nodes.forEach((node, i) => {
+        const at = list.children[i];
+        if (at !== node) list.insertBefore(node, at ?? null);
+    });
+    while (list.children.length > nodes.length) list.lastElementChild!.remove();
 
-    if (visible.length === 0) {
-        const pending = [...session.summaries.values()].some(s => s.status === 'pending');
-        const anyChanges = rows.some(r => r.kind !== 'noop');
-        let text: string;
-        if (pending && rows.length === 0) text = 'Loading plans…';
-        else if (!anyChanges && !filter.search && filter.actionFilters.size === 0) {
-            text = pending
-                ? 'No resource changes in the plans loaded so far…'
-                : 'No resource changes in any plan. Infrastructure matches the configuration.';
-        } else text = 'No resources match the current filter.';
-        list.appendChild(el('div', { class: 'empty', text }));
-        return list;
-    }
+    const message = nodes.length ? '' : overviewEmptyMessage(session, rows, filter);
+    empty.textContent = message;
+    empty.hidden = !message;
+}
 
-    for (const row of visible) {
-        const details = renderResource(row.resource) as HTMLDetailsElement;
-        details.dataset.rowKey = row.key;
-        const summary = details.querySelector('summary')!;
-        summary.dataset.focusKey = `res:${row.key}`;
-        summary.appendChild(renderPlanTag(row.planLabel, `tag:${row.key}`, () => onOpenPlan(row.planId)));
-        details.open = session.openKeys.has(row.key);
-        details.addEventListener('toggle', () => {
-            if (details.open) session.openKeys.add(row.key);
-            else session.openKeys.delete(row.key);
-        });
-        list.appendChild(details);
+function overviewEmptyMessage(session: OverviewSession, rows: ResourceRow[], filter: OverviewFilter): string {
+    const all = [...session.summaries.values()];
+    const pending = all.some(s => s.status === 'pending');
+    const failed = all.filter(s => s.status === 'error').length;
+    const loaded = all.filter(s => s.status === 'loaded').length;
+    const filtered = !!filter.search.trim() || filter.actionFilters.size > 0;
+    const anyChanges = rows.some(r => r.kind !== 'noop');
+
+    if (pending && rows.length === 0) return 'Loading plans…';
+    if (filtered || anyChanges) return 'No resources match the current filter.';
+    if (pending) return 'No resource changes in the plans loaded so far…';
+    // Never give the all-clear while some plans were never inspected.
+    if (failed && !loaded) return 'None of the plans could be loaded, so their changes are unknown.';
+    if (failed) {
+        return `No resource changes in the plans that loaded, but ${failed} ${failed === 1 ? 'plan' : 'plans'} `
+            + 'could not be loaded, so the result is incomplete.';
     }
-    return list;
+    return 'No resource changes in any plan. Infrastructure matches the configuration.';
 }
 
 /** Output changes across all loaded plans, tagged like resources. Null when none change. */

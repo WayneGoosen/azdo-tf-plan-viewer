@@ -19,6 +19,7 @@
     "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html",
     "test": "vitest run",
     "test:watch": "vitest",
+    "playwright:install": "playwright install --with-deps chromium",
     "test:e2e": "playwright test",
     "lint": "eslint ."
   },

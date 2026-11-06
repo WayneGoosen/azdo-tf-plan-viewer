@@ -67,7 +67,7 @@ npm run test:e2e   # Browser tests (Playwright, against the dev harness)
 npm run lint       # ESLint
 ```
 
-Browser tests live in `e2e/` and run in Chromium against the dev harness with fixture plans (no Azure DevOps needed). Install the browser once with `npx playwright install chromium`. Use them for behaviour that a simulated DOM can't cover reliably, like focus and mouse interaction.
+Browser tests live in `e2e/` and run in Chromium against the dev harness with fixture plans (no Azure DevOps needed). Install the browser once with `npm run playwright:install`. Use them for behaviour that a simulated DOM can't cover reliably, like focus and mouse interaction.
 
 Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`, `buildAndReleaseTask/redact.test.ts`). Use `npm run test:watch` while iterating.
 

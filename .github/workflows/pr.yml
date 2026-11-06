@@ -57,7 +57,9 @@ jobs:
         run: npm run lint
 
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        # Use the lockfile-pinned CLI from node_modules, not `npx playwright`
+        # (which can download an unpinned package and run its install scripts).
+        run: npm run playwright:install
 
       - name: Run browser tests
         run: npm run test:e2e

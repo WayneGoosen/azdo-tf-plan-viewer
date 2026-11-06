@@ -119,7 +119,11 @@ export function loadedSummary(
     },
     id: string = name,
 ): PlanSummary {
-    const counts = countResourceChanges(plan.resource_changes ?? []);
+    // Attachments are JSON.parse'd; a non-array here would throw inside
+    // countResourceChanges (string is iterable) and must not be treated as a
+    // successful load.
+    const resources = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
+    const counts = countResourceChanges(resources);
     return {
         id,
         name,
@@ -213,8 +217,9 @@ export function buildResourceRows(
 ): ResourceRow[] {
     const rows: ResourceRow[] = [];
     for (const p of plans) {
+        const resources = Array.isArray(p.resources) ? p.resources : [];
         const seen = new Map<string, number>();
-        for (const r of p.resources) {
+        for (const r of resources) {
             // Addresses are unique within a plan except for deposed objects;
             // a counter keeps keys unique without depending on that.
             const n = seen.get(r.address) ?? 0;

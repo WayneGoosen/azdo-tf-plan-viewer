@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     type ActionKind,
     type ResourceChange,
+    emptyCounts,
 } from './planLogic';
 import {
     ALL_PLANS_VALUE,
@@ -112,6 +113,14 @@ describe('loadedSummary / hasChanges', () => {
         expect(e.hasChanges).toBeNull();
         expect(e.error).toBe('not json');
     });
+
+    it('treats a missing or non-array resource_changes as empty, not as a crash', () => {
+        expect(loadedSummary('none', {}).counts).toEqual(emptyCounts());
+        expect(loadedSummary('nullish', { resource_changes: null as unknown as ResourceChange[] }).counts)
+            .toEqual(emptyCounts());
+        expect(loadedSummary('string', { resource_changes: 'nope' as unknown as ResourceChange[] }).hasChanges)
+            .toBe(false);
+    });
 });
 
 describe('buildResourceRows', () => {
@@ -143,6 +152,14 @@ describe('buildResourceRows', () => {
 
     it('counts no-op rows for the unchanged-resources toggle', () => {
         expect(noopRowCount(buildResourceRows([hub, aks]))).toBe(1);
+    });
+
+    it('skips a non-array resources list instead of iterating it', () => {
+        const rows = buildResourceRows([
+            { id: 'bad', label: 'bad', resources: 'nope' as unknown as ResourceChange[] },
+            hub,
+        ]);
+        expect(rows.map(r => r.planId)).toEqual(['id-hub', 'id-hub']);
     });
 });
 

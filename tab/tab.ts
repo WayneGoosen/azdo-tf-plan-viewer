@@ -399,7 +399,7 @@ function breakableAddress(address: string): Child[] {
     return out;
 }
 
-function renderResource(r: ResourceChange): HTMLElement {
+function renderResource(r: ResourceChange, opts: { attrFocusKey?: string } = {}): HTMLElement {
     const kind = classifyAction(r.change.actions);
     const summary = el('summary', { class: 'resource-summary' }, [
         el('span', { class: `action-badge action-${kind}`, text: ACTION_LABEL[kind] }),
@@ -416,7 +416,7 @@ function renderResource(r: ResourceChange): HTMLElement {
 
     const diff = computeDiff(r.change);
     if (diff.changed.length || diff.unchanged.length) {
-        body.appendChild(renderDiff(diff, kind));
+        body.appendChild(renderDiff(diff, kind, opts.attrFocusKey));
     } else if (kind !== 'noop') {
         body.appendChild(el('div', { class: 'no-diff', text: 'No attribute-level changes reported.' }));
     }
@@ -438,7 +438,7 @@ function renderReplaceReasons(paths: unknown[][]): HTMLElement {
     ]);
 }
 
-function renderDiff(diff: ResourceDiff, kind: ActionKind): HTMLElement {
+function renderDiff(diff: ResourceDiff, kind: ActionKind, attrFocusKey?: string): HTMLElement {
     // For pure create/delete resources, hide the empty side so the layout
     // doesn't get a column of dashes carrying no information.
     const hideBefore = kind === 'create';
@@ -459,6 +459,7 @@ function renderDiff(diff: ResourceDiff, kind: ActionKind): HTMLElement {
                 text: `${diff.unchanged.length} unchanged ${diff.unchanged.length === 1 ? 'attribute' : 'attributes'} hidden`,
             }),
         ]);
+        if (attrFocusKey) summary.dataset.focusKey = `unchanged:${attrFocusKey}`;
         const details = el('details', { class: 'diff-unchanged' });
         details.appendChild(summary);
         details.appendChild(renderDiffGrid(diff.unchanged, /* unchanged */ true));
@@ -592,6 +593,8 @@ interface OverviewSession {
     nameSuffixes: Map<string, string>;
     /** Row keys the user has expanded; survives re-renders as plans finish loading. */
     openKeys: Set<string>;
+    /** Resource <details> keyed by row key; reused so diffs and nested open/focus survive patches. */
+    rowNodes: Map<string, HTMLDetailsElement>;
     mounted: {
         metaHost: HTMLElement;
         summaryHost: HTMLElement;
@@ -635,6 +638,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         summaries,
         nameSuffixes: duplicateNameSuffixes(refs),
         openKeys: new Set(),
+        rowNodes: new Map(),
         mounted: null,
     };
 
@@ -693,14 +697,17 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         const existing = inflight.get(id);
         if (existing) return existing;
         const p = fetcher(ref).then(plan => {
+            // Summarize before caching: a malformed plan must not land in
+            // cache, or the next currentRows() patch would throw and blank
+            // the overview. Always clear inflight so a failed summarize can
+            // be retried / recorded as an error.
+            const summary = loadedSummary(ref.name, plan, id);
             cache.set(id, plan);
-            summaries.set(id, loadedSummary(ref.name, plan, id));
-            inflight.delete(id);
+            summaries.set(id, summary);
             syncSelector();
             return plan;
-        }, err => {
+        }).finally(() => {
             inflight.delete(id);
-            throw err;
         });
         inflight.set(id, p);
         return p;
@@ -717,11 +724,14 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
     /** Every resource change from the plans loaded so far, in plan order. */
     const currentRows = (): ResourceRow[] => buildResourceRows(
-        loadedRefs().map(r => ({
-            id: planId(r),
-            label: planLabel(r),
-            resources: cache.get(planId(r))!.resource_changes ?? [],
-        })),
+        loadedRefs().map(r => {
+            const plan = cache.get(planId(r))!;
+            return {
+                id: planId(r),
+                label: planLabel(r),
+                resources: Array.isArray(plan.resource_changes) ? plan.resource_changes : [],
+            };
+        }),
     );
 
     const openPlan = (id: string) => {
@@ -768,8 +778,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         summaryHost.appendChild(renderOverviewSummary(overview, patchOverview));
         clear(buttonsHost);
         buttonsHost.appendChild(renderOverviewButtons(overview, rows, patchOverview));
-        clear(listHost);
-        listHost.appendChild(renderOverviewList(overview, rows, filterOf(), openPlan));
+        patchOverviewList(listHost, overview, rows, filterOf(), openPlan);
         clear(outputsHost);
         const outputs = renderCombinedOutputs(
             loadedRefs().map(r => ({
@@ -798,7 +807,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         const metaHost = el('div', { class: 'header-meta' });
         const summaryHost = el('div');
         const buttonsHost = el('div', { class: 'control-buttons' });
-        const listHost = el('div', { class: 'tree' });
+        const listHost = el('div', { class: 'tree module-root overview-list' });
         const outputsHost = el('div');
         const noticeHost = el('div');
         overview.mounted = { metaHost, summaryHost, buttonsHost, listHost, outputsHost, noticeHost };
@@ -1075,43 +1084,87 @@ function renderPlanTag(label: string, focusKey: string, onOpen: () => void): HTM
     return tag;
 }
 
-function renderOverviewList(
+function overviewEmptyText(
+    session: OverviewSession,
+    rows: ResourceRow[],
+    filter: OverviewFilter,
+): string {
+    const statuses = [...session.summaries.values()];
+    const pending = statuses.some(s => s.status === 'pending');
+    const failed = statuses.some(s => s.status === 'error');
+    const anyChanges = rows.some(r => r.kind !== 'noop');
+    if (pending && rows.length === 0) return 'Loading plans…';
+    if (!anyChanges && !filter.search && filter.actionFilters.size === 0) {
+        if (pending) return 'No resource changes in the plans loaded so far…';
+        if (failed) {
+            return 'No resource changes in the plans that loaded. Some plans could not be inspected.';
+        }
+        return 'No resource changes in any plan. Infrastructure matches the configuration.';
+    }
+    return 'No resources match the current filter.';
+}
+
+function createOverviewRow(
+    row: ResourceRow,
+    session: OverviewSession,
+    onOpenPlan: (id: string) => void,
+): HTMLDetailsElement {
+    const details = renderResource(row.resource, { attrFocusKey: row.key }) as HTMLDetailsElement;
+    details.dataset.rowKey = row.key;
+    const summary = details.querySelector('summary')!;
+    summary.dataset.focusKey = `res:${row.key}`;
+    summary.appendChild(renderPlanTag(row.planLabel, `tag:${row.key}`, () => onOpenPlan(row.planId)));
+    details.addEventListener('toggle', () => {
+        if (details.open) session.openKeys.add(row.key);
+        else session.openKeys.delete(row.key);
+    });
+    return details;
+}
+
+/**
+ * Patch the combined resource list in place. Reusing each row's <details>
+ * keeps attribute diffs from being rebuilt as later plans finish loading, and
+ * preserves nested "unchanged attributes" expansion and focus.
+ */
+function patchOverviewList(
+    listHost: HTMLElement,
     session: OverviewSession,
     rows: ResourceRow[],
     filter: OverviewFilter,
     onOpenPlan: (id: string) => void,
-): HTMLElement {
+): void {
     const visible = rows.filter(r => rowMatches(r, filter));
-    const list = el('div', { class: 'module-root overview-list' });
+    const emptyEl = listHost.querySelector(':scope > .empty');
 
     if (visible.length === 0) {
-        const pending = [...session.summaries.values()].some(s => s.status === 'pending');
-        const anyChanges = rows.some(r => r.kind !== 'noop');
-        let text: string;
-        if (pending && rows.length === 0) text = 'Loading plans…';
-        else if (!anyChanges && !filter.search && filter.actionFilters.size === 0) {
-            text = pending
-                ? 'No resource changes in the plans loaded so far…'
-                : 'No resource changes in any plan. Infrastructure matches the configuration.';
-        } else text = 'No resources match the current filter.';
-        list.appendChild(el('div', { class: 'empty', text }));
-        return list;
+        for (const node of session.rowNodes.values()) {
+            if (node.parentElement === listHost) node.remove();
+        }
+        const text = overviewEmptyText(session, rows, filter);
+        if (emptyEl) emptyEl.textContent = text;
+        else listHost.appendChild(el('div', { class: 'empty', text }));
+        return;
     }
 
+    emptyEl?.remove();
+
+    let next: ChildNode | null = listHost.firstChild;
     for (const row of visible) {
-        const details = renderResource(row.resource) as HTMLDetailsElement;
-        details.dataset.rowKey = row.key;
-        const summary = details.querySelector('summary')!;
-        summary.dataset.focusKey = `res:${row.key}`;
-        summary.appendChild(renderPlanTag(row.planLabel, `tag:${row.key}`, () => onOpenPlan(row.planId)));
-        details.open = session.openKeys.has(row.key);
-        details.addEventListener('toggle', () => {
-            if (details.open) session.openKeys.add(row.key);
-            else session.openKeys.delete(row.key);
-        });
-        list.appendChild(details);
+        let details = session.rowNodes.get(row.key);
+        if (!details) {
+            details = createOverviewRow(row, session, onOpenPlan);
+            session.rowNodes.set(row.key, details);
+        }
+        const shouldOpen = session.openKeys.has(row.key);
+        if (details.open !== shouldOpen) details.open = shouldOpen;
+        if (details !== next) listHost.insertBefore(details, next);
+        next = details.nextSibling;
     }
-    return list;
+    while (next) {
+        const leftover = next;
+        next = next.nextSibling;
+        leftover.remove();
+    }
 }
 
 /** Output changes across all loaded plans, tagged like resources. Null when none change. */

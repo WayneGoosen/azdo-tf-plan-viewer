@@ -1210,6 +1210,10 @@ function renderFailedPlans(failed: PlanSummary[], suffixes: Map<string, string>)
 interface RowAnchor { key: string; top: number }
 
 function visibleRowAnchor(listHost: HTMLElement): RowAnchor | null {
+    // At the top of the page, rows appearing above the current first row
+    // should push content down — restoring an anchor would scroll the
+    // heading and controls out of view without the user having scrolled.
+    if (window.scrollY === 0) return null;
     for (const row of listHost.querySelectorAll<HTMLElement>('[data-row-key]')) {
         const top = row.getBoundingClientRect().top;
         if (top >= 0) return { key: row.dataset.rowKey!, top };

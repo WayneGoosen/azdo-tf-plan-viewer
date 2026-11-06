@@ -239,6 +239,13 @@ describe('planShapeError', () => {
             .toBe('resource_changes[0] has no change.actions list');
         expect(planShapeError({ output_changes: [] })).toBe('output_changes is not an object');
         expect(planShapeError({ output_changes: { url: {} } })).toBe('output_changes.url has no actions list');
+        expect(planShapeError({ terraform_version: 42, resource_changes: [] }))
+            .toBe('terraform_version is not a string');
+    });
+
+    it('accepts a string terraform_version and a missing one', () => {
+        expect(planShapeError({ terraform_version: '1.7.4' })).toBeNull();
+        expect(planShapeError({ resource_changes: [] })).toBeNull();
     });
 });
 
@@ -260,5 +267,14 @@ describe('uniqueTerraformVersions', () => {
         const b = loadedSummary('b', { terraform_version: '1.7.4', resource_changes: [] });
         const c = loadedSummary('c', { terraform_version: '1.9.8', resource_changes: [] });
         expect(uniqueTerraformVersions([a, b, c, pendingSummary('d')])).toEqual(['1.7.4', '1.9.8']);
+    });
+
+    it('ignores a non-string terraformVersion instead of throwing in localeCompare', () => {
+        const numeric = {
+            ...loadedSummary('x', { resource_changes: [] }),
+            terraformVersion: 42 as unknown as string,
+        };
+        const ok = loadedSummary('y', { terraform_version: '1.7.4', resource_changes: [] });
+        expect(uniqueTerraformVersions([numeric, ok])).toEqual(['1.7.4']);
     });
 });

@@ -2,7 +2,7 @@
 // `npm run dev:prepare`) with caching off. Kept dependency-free on purpose.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 
 const root = resolve(process.argv[2] ?? '.dev');
 const port = Number(process.argv[3] ?? 4173);
@@ -18,7 +18,9 @@ const types = {
 createServer(async (req, res) => {
     const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
     const file = normalize(join(root, pathname));
-    if (!file.startsWith(root)) {
+    // `startsWith(root)` is not enough: `.dev-private/...` also prefixes `.dev`.
+    const rel = relative(root, file);
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
         res.writeHead(403).end();
         return;
     }

@@ -267,6 +267,24 @@ describe('renderPlans', () => {
             .toBe('None of the plans could be loaded, so their changes are unknown.');
     });
 
+    it('does not let a numeric terraform_version take the overview down', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans(
+            [ref('good'), ref('weird-ver')],
+            async r => {
+                if (r.name === 'weird-ver') {
+                    return { terraform_version: 42, resource_changes: [] } as unknown as ReturnType<typeof planWith>;
+                }
+                return changed;
+            },
+            root,
+        );
+        await settled(root);
+        expect(listedRows(root).every(r => r[0] === 'good')).toBe(true);
+        expect(root.querySelector('.overview-notice')?.textContent).toMatch(/terraform_version is not a string/);
+    });
+
     it('keeps the overview working when an attachment is JSON but not a plan', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;

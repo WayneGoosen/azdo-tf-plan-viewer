@@ -122,6 +122,8 @@ export function planShapeError(plan: unknown): string | null {
             if (!isObject(o) || !Array.isArray(o.actions)) return `output_changes.${name} has no actions list`;
         }
     }
+    const tv = plan.terraform_version;
+    if (tv !== undefined && typeof tv !== 'string') return 'terraform_version is not a string';
     return null;
 }
 
@@ -161,7 +163,7 @@ export function loadedSummary(
         status: 'loaded',
         counts,
         hasChanges: countsHaveChanges(counts) || outputsHaveChanges(plan.output_changes),
-        terraformVersion: plan.terraform_version,
+        terraformVersion: typeof plan.terraform_version === 'string' ? plan.terraform_version : undefined,
         hideWhenNoChanges: plan[VIEWER_SETTINGS_KEY]?.hideNoChangePlans === true,
     };
 }
@@ -188,7 +190,9 @@ function outputsHaveChanges(outputs: Record<string, { actions: string[] }> | und
 export function uniqueTerraformVersions(summaries: PlanSummary[]): string[] {
     const set = new Set<string>();
     for (const s of summaries) {
-        if (s.status === 'loaded' && s.terraformVersion) set.add(s.terraformVersion);
+        if (s.status === 'loaded' && typeof s.terraformVersion === 'string' && s.terraformVersion) {
+            set.add(s.terraformVersion);
+        }
     }
     return [...set].sort((a, b) => a.localeCompare(b));
 }

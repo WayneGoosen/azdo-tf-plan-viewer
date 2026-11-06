@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { looksLikeBinaryPlan, validateAttachmentName, validateCliTool } from './validation';
+import { looksLikeBinaryPlan, parseOptInBoolean, validateAttachmentName, validateCliTool } from './validation';
+import { VIEWER_SETTINGS_KEY, withViewerSettings } from './viewerSettings';
 
 describe('looksLikeBinaryPlan', () => {
     it('detects binary plan with ZIP magic bytes', () => {
@@ -66,5 +67,35 @@ describe('CLI tool resolution', () => {
         expect(validateCliTool('terragrunt')).toBe(false);
         expect(validateCliTool('../terraform')).toBe(false);
         expect(validateCliTool('/usr/bin/terraform')).toBe(false);
+    });
+});
+
+describe('parseOptInBoolean', () => {
+    it('is on only for an explicit true', () => {
+        expect(parseOptInBoolean('true')).toBe(true);
+        expect(parseOptInBoolean(' TRUE ')).toBe(true);
+    });
+
+    it('stays off for missing, blank, false, typos, and unresolved variables', () => {
+        for (const raw of [undefined, '', '  ', 'false', 'yes', '1', '$(hidePlans)']) {
+            expect(parseOptInBoolean(raw)).toBe(false);
+        }
+    });
+});
+
+describe('withViewerSettings', () => {
+    it('adds the settings under the contract key without touching Terraform fields', () => {
+        const plan = { format_version: '1.2', resource_changes: [] };
+        const out = withViewerSettings(plan, { hideNoChangePlans: true }) as Record<string, unknown>;
+        expect(VIEWER_SETTINGS_KEY).toBe('terraform_plan_viewer');
+        expect(out[VIEWER_SETTINGS_KEY]).toEqual({ hideNoChangePlans: true });
+        expect(out.format_version).toBe('1.2');
+        expect(out.resource_changes).toEqual([]);
+        expect(plan).not.toHaveProperty(VIEWER_SETTINGS_KEY); // input not mutated
+    });
+
+    it('leaves non-object plans alone', () => {
+        expect(withViewerSettings(null, { hideNoChangePlans: true })).toBeNull();
+        expect(withViewerSettings([1], { hideNoChangePlans: true })).toEqual([1]);
     });
 });

@@ -70,7 +70,21 @@ describe('renderPlans', () => {
         expect(counts).toEqual(['1', '1', '0', '0']);
     });
 
-    it('defaults to All plans with combined counts when multiple attachments exist', async () => {
+    /** [plan tag, resource address] for each row in the combined list. */
+    const listedRows = (root: HTMLElement) =>
+        [...root.querySelectorAll('.overview-list details.resource')].map(d => [
+            d.querySelector('.plan-tag')?.textContent,
+            d.querySelector('.resource-address')?.textContent,
+        ]);
+
+    const settled = async (root: HTMLElement) => {
+        await vi.waitFor(() => {
+            expect(root.querySelector('.header-meta')?.textContent ?? '').not.toMatch(/Loading/);
+            expect(root.querySelector('.header-meta')).not.toBeNull();
+        });
+    };
+
+    it('defaults to All plans, listing every resource change tagged with its plan', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
         const fixtures: Record<string, ReturnType<typeof planWith>> = {
@@ -78,39 +92,43 @@ describe('renderPlans', () => {
             'prod-apps-sql-primary': noChange,
             'prod-platform-network-hub-vnet': changed,
         };
-        await renderPlans(
-            Object.keys(fixtures).map(name => ref(name)),
-            async r => fixtures[r.name],
-            root,
-        );
-        await vi.waitFor(() => {
-            expect(root.textContent ?? '').not.toMatch(/Loading/);
-        });
+        await renderPlans(Object.keys(fixtures).map(name => ref(name)), async r => fixtures[r.name], root);
+        await settled(root);
 
-        const select = root.querySelector<HTMLSelectElement>('#plan-select');
-        expect(select).not.toBeNull();
-        expect(select!.value).toBe(ALL_PLANS_VALUE);
-        expect(select!.options[0].textContent).toBe('All plans (3)');
+        const select = root.querySelector<HTMLSelectElement>('#plan-select')!;
+        expect(select.value).toBe(ALL_PLANS_VALUE);
+        expect(select.options[0].textContent).toBe('All plans (3)');
         expect(root.querySelector('h1')?.textContent).toBe('All plans');
 
-        const toggle = root.querySelector<HTMLInputElement>('.toggle-input');
-        expect(toggle?.checked).toBe(true);
-
         const counts = [...root.querySelectorAll('.summary-count')].map(n => n.textContent);
-        // two changed plans each contribute +1 create and +1 update
         expect(counts).toEqual(['2', '2', '0', '0']);
+        expect(root.querySelector('.header-meta')?.textContent).toMatch(/4 resource changes/);
 
-        const rows = [...root.querySelectorAll('.plan-row')].map(r => r.getAttribute('data-plan-name'));
-        expect(rows).toEqual([
-            'prod-apps-aks-cluster-weu',
-            'prod-platform-network-hub-vnet',
+        // No-op resources (the whole of sql-primary here) are hidden by default.
+        expect(listedRows(root)).toEqual([
+            ['prod-apps-aks-cluster-weu', 'test_resource.0'],
+            ['prod-apps-aks-cluster-weu', 'test_resource.1'],
+            ['prod-platform-network-hub-vnet', 'test_resource.0'],
+            ['prod-platform-network-hub-vnet', 'test_resource.1'],
         ]);
-        expect([...root.querySelectorAll('.module-label')].map(n => n.textContent))
-            .toEqual(['prod-apps', 'prod-platform']);
-        expect(root.querySelector('.hidden-plans')?.textContent).toMatch(/1 plan with no changes is hidden/);
+        expect(root.querySelector('.plan-row')).toBeNull();
     });
 
-    it('opens the existing detail view from a plan row and returns via the selector', async () => {
+    it('reveals unchanged resources with the toggle', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('changed'), ref('quiet')], async r => r.name === 'changed' ? changed : noChange, root);
+        await settled(root);
+
+        const toggle = [...root.querySelectorAll<HTMLButtonElement>('.control-btn')]
+            .find(b => /unchanged resource/.test(b.textContent ?? ''))!;
+        expect(toggle.textContent).toBe('Show 1 unchanged resource');
+        toggle.click();
+        expect(listedRows(root)).toContainEqual(['quiet', 'test_resource.0']);
+        expect(root.querySelector('[data-focus-key="btn:noop"]')?.textContent).toBe('Hide 1 unchanged resource');
+    });
+
+    it('opens the plan detail view from a plan tag and returns via the selector', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
         await renderPlans(
@@ -118,136 +136,322 @@ describe('renderPlans', () => {
             async () => changed,
             root,
         );
-        await vi.waitFor(() => {
-            expect(root.querySelector('.plan-row')).not.toBeNull();
-        });
+        await settled(root);
 
-        const row = root.querySelector<HTMLButtonElement>('.plan-row');
-        expect(row).not.toBeNull();
-        row!.click();
+        const tag = root.querySelector<HTMLButtonElement>('.overview-list .plan-tag')!;
+        expect(tag.getAttribute('aria-label')).toBe('Open plan prod-apps-aks-cluster-weu');
+        tag.click();
         await Promise.resolve();
 
         expect(root.querySelector('h1')?.textContent).toBe('Terraform Plan');
         expect(root.querySelector<HTMLSelectElement>('#plan-select')?.value)
             .toBe(planId(ref('prod-apps-aks-cluster-weu')));
-        expect(root.querySelector('.resource-address')?.textContent).toBe('test_resource.0');
 
         const select = root.querySelector<HTMLSelectElement>('#plan-select')!;
         select.value = ALL_PLANS_VALUE;
         select.dispatchEvent(new Event('change'));
         await Promise.resolve();
-
         expect(root.querySelector('h1')?.textContent).toBe('All plans');
     });
 
-    it('summary cards filter the overview to plans with that action', async () => {
+    it('clicking a plan tag does not expand the row it sits in', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('a'), ref('b')], async () => changed, root);
+        await settled(root);
+        const row = root.querySelector<HTMLDetailsElement>('.overview-list details.resource')!;
+        const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+        row.querySelector('.plan-tag')!.dispatchEvent(ev);
+        expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it('summary cards filter the list to resources with that action', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
         await renderPlans(
             [ref('adds'), ref('removes')],
-            async r => r.name === 'adds'
-                ? planWith([['create']])
-                : planWith([['delete']]),
+            async r => r.name === 'adds' ? planWith([['create']]) : planWith([['delete']]),
             root,
         );
-        await vi.waitFor(() => {
-            expect(root.querySelectorAll('.plan-row')).toHaveLength(2);
-        });
+        await settled(root);
 
         root.querySelector<HTMLButtonElement>('.summary-delete')!.click();
-        const rows = [...root.querySelectorAll('.plan-row')].map(r => r.getAttribute('data-plan-name'));
-        expect(rows).toEqual(['removes']);
+        expect(listedRows(root)).toEqual([['removes', 'test_resource.0']]);
         expect(root.querySelector('.summary-delete')?.classList.contains('is-active')).toBe(true);
     });
 
-    it('Show all reveals plans that have no changes', async () => {
+    it('search matches the plan name as well as resource address and type', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans([ref('network-hub'), ref('aks-cluster')], async () => changed, root);
+            await settled(root);
+
+            const search = root.querySelector<HTMLInputElement>('.search')!;
+            search.value = 'hub';
+            search.dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(100);
+            expect(listedRows(root).map(r => r[0])).toEqual(['network-hub', 'network-hub']);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('tags rows from same-name attachments with a record suffix, like the selector', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const a = ref('prod', { timelineId: 'one', recordId: 'abcd1234ffff' });
+        const b = ref('prod', { timelineId: 'two', recordId: 'ef567890ffff' });
+        await renderPlans([a, b], async r => r.recordId === a.recordId ? planWith([['create']]) : planWith([['delete']]), root);
+        await settled(root);
+
+        expect(listedRows(root)).toEqual([
+            ['prod (abcd1234)', 'test_resource.0'],
+            ['prod (ef567890)', 'test_resource.0'],
+        ]);
+        expect([...root.querySelectorAll('.summary-count')].map(n => n.textContent)).toEqual(['1', '0', '0', '1']);
+        const opts = [...root.querySelectorAll<HTMLOptionElement>('#plan-select option')].map(o => o.textContent);
+        expect(opts.slice(1)).toEqual(['prod (abcd1234)', 'prod (ef567890)']);
+    });
+
+    it('lists changed outputs from every plan, tagged with their plan', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const withOutputs = {
+            ...planWith([['no-op']]),
+            output_changes: {
+                endpoint: { actions: ['update'], before: 'a', after: 'b' },
+                unchanged: { actions: ['no-op'], before: 'x', after: 'x' },
+            },
+        };
+        await renderPlans([ref('api'), ref('quiet')], async r => r.name === 'api' ? withOutputs : noChange, root);
+        await settled(root);
+
+        const outputs = [...root.querySelectorAll('.outputs .output-row')].map(r => [
+            r.querySelector('.output-name')?.textContent,
+            r.querySelector('.plan-tag')?.textContent,
+        ]);
+        expect(outputs).toEqual([['endpoint', 'api']]);
+    });
+
+    it('says so when no plan has resource changes', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('a'), ref('b')], async () => noChange, root);
+        await settled(root);
+        expect(root.querySelector('.overview-list .empty')?.textContent)
+            .toMatch(/No resource changes in any plan/);
+    });
+
+    it('lists plans that failed to load', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
         await renderPlans(
-            [ref('changed'), ref('quiet')],
-            async r => r.name === 'changed' ? changed : noChange,
+            [ref('good'), ref('broken')],
+            async r => { if (r.name === 'broken') throw new Error('not valid JSON'); return changed; },
             root,
         );
-        await vi.waitFor(() => {
-            expect(root.querySelector('.hidden-plans')).not.toBeNull();
-        });
-
-        expect(root.querySelectorAll('.plan-row')).toHaveLength(1);
-        root.querySelector<HTMLButtonElement>('.hidden-plans-action')!.click();
-        expect(root.querySelectorAll('.plan-row')).toHaveLength(2);
-        expect(root.querySelector('.hidden-plans')).toBeNull();
-        expect(root.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(false);
+        await settled(root);
+        expect(root.querySelector('.overview-notice')?.textContent).toMatch(/1 plan could not be loaded/);
+        expect(root.querySelector('.overview-notice')?.textContent).toMatch(/broken: not valid JSON/);
+        expect(listedRows(root).every(r => r[0] === 'good')).toBe(true);
     });
 
-    it('counts two attachments that share a display name separately', async () => {
-        const { renderPlans } = await import('./tab');
-        const root = document.getElementById('root')!;
-        const a = ref('terraform-plan', { timelineId: 'one', recordId: 'aaa' });
-        const b = ref('terraform-plan', { timelineId: 'two', recordId: 'bbb' });
-        await renderPlans(
-            [a, b],
-            async r => r.recordId === 'aaa' ? planWith([['create']]) : planWith([['delete']]),
-            root,
-        );
-        await vi.waitFor(() => {
-            expect(root.textContent ?? '').not.toMatch(/Loading/);
-        });
-
-        const counts = [...root.querySelectorAll('.summary-count')].map(n => n.textContent);
-        expect(counts).toEqual(['1', '0', '0', '1']);
-        const ids = [...root.querySelectorAll('.plan-row')].map(r => r.getAttribute('data-plan-id'));
-        expect(ids).toEqual([planId(a), planId(b)]);
-    });
-
-    it('keeps a collapsed group collapsed while background fetches complete', async () => {
+    it('keeps an expanded row open and focused while other plans finish loading', async () => {
         const { renderPlans } = await import('./tab');
         const root = document.getElementById('root')!;
         let releaseSlow: (plan: ReturnType<typeof planWith>) => void = () => undefined;
         const slow = new Promise<ReturnType<typeof planWith>>(resolve => { releaseSlow = resolve; });
-        const fetchP = renderPlans(
-            [
-                ref('prod-apps-aks-cluster-weu'),
-                ref('prod-apps-sql-primary'),
-                ref('prod-platform-network-hub-vnet'),
-            ],
-            async r => {
-                if (r.name === 'prod-apps-sql-primary') return slow;
-                return changed;
+        const done = renderPlans([ref('alpha'), ref('beta')], async r => r.name === 'beta' ? slow : changed, root);
+        await vi.waitFor(() => expect(listedRows(root).length).toBe(2));
+
+        const row = root.querySelector<HTMLDetailsElement>('.overview-list details.resource')!;
+        row.open = true;
+        row.dispatchEvent(new Event('toggle'));
+        row.querySelector<HTMLElement>('summary')!.focus();
+
+        releaseSlow(changed);
+        await done;
+        await settled(root);
+
+        const first = root.querySelector<HTMLDetailsElement>('.overview-list details.resource')!;
+        expect(first).not.toBe(row); // list was rebuilt
+        expect(first.open).toBe(true);
+        expect(document.activeElement).toBe(first.querySelector('summary'));
+        expect(listedRows(root)).toHaveLength(4);
+    });
+
+    it('keeps focus on a summary card after toggling it', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        await renderPlans([ref('adds'), ref('removes')],
+            async r => r.name === 'adds' ? planWith([['create']]) : planWith([['delete']]), root);
+        await settled(root);
+        const card = root.querySelector<HTMLButtonElement>('.summary-delete')!;
+        card.focus();
+        card.click();
+        expect(document.activeElement?.classList.contains('summary-delete')).toBe(true);
+        expect(document.activeElement).not.toBe(card); // card was rebuilt, focus moved to the new one
+    });
+
+    it('defers re-rendering while the pointer is held so a click is not lost', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        let releaseSlow: (plan: ReturnType<typeof planWith>) => void = () => undefined;
+        const slow = new Promise<ReturnType<typeof planWith>>(resolve => { releaseSlow = resolve; });
+        const done = renderPlans([ref('alpha'), ref('beta')], async r => r.name === 'beta' ? slow : changed, root);
+        await vi.waitFor(() => expect(listedRows(root).length).toBe(2));
+
+        const tag = root.querySelector<HTMLButtonElement>('.overview-list .plan-tag')!;
+        tag.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+
+        releaseSlow(changed);
+        await done;
+        await new Promise(r => setTimeout(r, 0));
+        // Fetch landed while the pointer was down: the redraw is deferred, so the
+        // meta still reads as loading and the element under the pointer survives.
+        expect(root.querySelector('.header-meta')?.textContent).toMatch(/Loading 1\/2/);
+        expect(tag.isConnected).toBe(true);
+
+        document.dispatchEvent(new Event('pointerup', { bubbles: true }));
+        tag.click();
+        expect(root.querySelector('h1')?.textContent).toBe('Terraform Plan');
+    });
+
+    it('pauses background overview downloads while a user-opened plan loads', async () => {
+        const { renderPlans } = await import('./tab');
+        const root = document.getElementById('root')!;
+        const names = ['a', 'b', 'c', 'd', 'e', 'f'];
+        const calls: string[] = [];
+        const release = new Map<string, () => void>();
+        await renderPlans(
+            names.map(n => ref(n, { recordId: n })),
+            r => {
+                calls.push(r.name);
+                return new Promise(resolve => release.set(r.name, () => resolve(changed)));
             },
             root,
         );
+        // Background pool fills up to its concurrency limit.
+        await vi.waitFor(() => expect(calls).toEqual(['a', 'b', 'c', 'd']));
 
-        await vi.waitFor(() => {
-            expect(root.querySelector('.plan-group')).not.toBeNull();
-        });
-        const group = root.querySelector<HTMLDetailsElement>('details.plan-group')!;
-        expect(group.open).toBe(true);
-        group.open = false;
-        group.dispatchEvent(new Event('toggle'));
+        const select = root.querySelector<HTMLSelectElement>('#plan-select')!;
+        select.value = planId(ref('f', { recordId: 'f' }));
+        select.dispatchEvent(new Event('change'));
+        expect(calls).toEqual(['a', 'b', 'c', 'd', 'f']);
 
-        releaseSlow(changed);
-        await fetchP;
-        await vi.waitFor(() => {
-            expect(root.textContent ?? '').not.toMatch(/Loading/);
-        });
+        // A background slot frees up, but it must not start 'e' yet.
+        release.get('a')!();
+        await new Promise(r => setTimeout(r, 0));
+        expect(calls).not.toContain('e');
 
-        expect(root.querySelector<HTMLDetailsElement>('details.plan-group[data-group-key="prod-apps"]')?.open)
-            .toBe(false);
+        release.get('f')!();
+        await vi.waitFor(() => expect(calls).toContain('e'));
+        expect(root.querySelector('h1')?.textContent).toBe('Terraform Plan');
     });
+    describe('hide plans without changes', () => {
+        const flagged = (plan: ReturnType<typeof planWith>) => ({ ...plan, terraform_plan_viewer: { hideNoChangePlans: true } });
+        const optionTexts = (root: HTMLElement) =>
+            [...root.querySelectorAll<HTMLOptionElement>('#plan-select option')].map(o => o.textContent);
 
-    it('exposes counts and status on the row accessible name', async () => {
-        const { renderPlans } = await import('./tab');
-        const root = document.getElementById('root')!;
-        await renderPlans(
-            [ref('adds'), ref('quiet')],
-            async r => r.name === 'adds' ? changed : noChange,
-            root,
-        );
-        await vi.waitFor(() => {
-            expect(root.querySelector('.hidden-plans')).not.toBeNull();
+        it('lists every plan by default', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans([ref('busy'), ref('quiet')], async r => r.name === 'busy' ? changed : noChange, root);
+            await settled(root);
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy', 'quiet']);
+            const box = root.querySelector<HTMLInputElement>('#hide-no-change-plans')!;
+            expect(box.checked).toBe(false);
         });
-        const row = root.querySelector<HTMLButtonElement>('.plan-row')!;
-        expect(row.getAttribute('aria-label')).toMatch(/1 update/);
-        expect(row.getAttribute('aria-label')).toMatch(/1 create/);
+
+        it('follows the task setting, and the checkbox overrides it', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans(
+                [ref('busy'), ref('quiet')],
+                async r => r.name === 'busy' ? flagged(changed) : flagged(noChange),
+                root,
+            );
+            await settled(root);
+            const box = root.querySelector<HTMLInputElement>('#hide-no-change-plans')!;
+            expect(box.checked).toBe(true);
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy']);
+            expect(root.querySelector('.selector-toggle-count')?.textContent).toBe('(1 hidden)');
+
+            box.checked = false;
+            box.dispatchEvent(new Event('change'));
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy', 'quiet']);
+            expect(root.querySelector('.selector-toggle-count')?.textContent).toBe('');
+        });
+
+        it('lets the viewer hide no-change plans even when the task did not ask', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans([ref('busy'), ref('quiet')], async r => r.name === 'busy' ? changed : noChange, root);
+            await settled(root);
+            const box = root.querySelector<HTMLInputElement>('#hide-no-change-plans')!;
+            box.checked = true;
+            box.dispatchEvent(new Event('change'));
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy']);
+        });
+
+        it('keeps the open plan listed and selected even if it would be hidden', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans(
+                [ref('busy'), ref('quiet')],
+                async r => r.name === 'busy' ? flagged(changed) : flagged(noChange),
+                root,
+            );
+            await settled(root);
+            // Reveal unchanged resources and open the quiet plan from its tag.
+            [...root.querySelectorAll<HTMLButtonElement>('.control-btn')]
+                .find(b => /unchanged/.test(b.textContent ?? ''))!.click();
+            const quietTag = [...root.querySelectorAll<HTMLButtonElement>('.plan-tag')].find(t => t.textContent === 'quiet')!;
+            quietTag.click();
+            await Promise.resolve();
+
+            const select = root.querySelector<HTMLSelectElement>('#plan-select')!;
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy', 'quiet']);
+            expect(select.value).toBe(planId(ref('quiet')));
+
+            select.value = ALL_PLANS_VALUE;
+            select.dispatchEvent(new Event('change'));
+            await Promise.resolve();
+            expect(optionTexts(root)).toEqual(['All plans (2)', 'busy']);
+        });
+
+        it('only shows the checkbox once a plan without changes has loaded', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            let releaseQuiet: (plan: ReturnType<typeof planWith>) => void = () => undefined;
+            const quietLater = new Promise<ReturnType<typeof planWith>>(resolve => { releaseQuiet = resolve; });
+            const done = renderPlans([ref('busy'), ref('quiet')], async r => r.name === 'busy' ? changed : quietLater, root);
+            const label = () => root.querySelector<HTMLElement>('.selector-toggle')!;
+
+            await vi.waitFor(() => expect(listedRows(root).length).toBe(2));
+            expect(label().hidden).toBe(true);
+
+            releaseQuiet(noChange);
+            await done;
+            await settled(root);
+            expect(label().hidden).toBe(false);
+        });
+
+        it('never shows the checkbox when every plan has changes', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans([ref('a'), ref('b')], async () => changed, root);
+            await settled(root);
+            expect(root.querySelector<HTMLElement>('.selector-toggle')!.hidden).toBe(true);
+        });
+
+        it('has no checkbox for a single plan', async () => {
+            const { renderPlans } = await import('./tab');
+            const root = document.getElementById('root')!;
+            await renderPlans([ref('only')], async () => changed, root);
+            expect(root.querySelector('#hide-no-change-plans')).toBeNull();
+        });
     });
 });

@@ -19,6 +19,7 @@
     "dev": "npm run dev:prepare && npx --yes http-server .dev -p 8080 -c-1 -o /dev.html",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "lint": "eslint ."
   },
   "keywords": [
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "1.65.0",
     "@types/node": "^24.10.0",
     "@vitest/ui": "^2.1.8",
     "copyfiles": "^2.4.1",

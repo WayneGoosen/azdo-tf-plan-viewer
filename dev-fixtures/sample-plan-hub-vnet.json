@@ -1,0 +1,109 @@
+{
+    "format_version": "1.2",
+    "terraform_version": "1.7.4",
+    "resource_changes": [
+        {
+            "address": "azurerm_subnet.firewall",
+            "mode": "managed",
+            "type": "azurerm_subnet",
+            "name": "firewall",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "create"
+                ],
+                "before": null,
+                "after": {
+                    "name": "AzureFirewallSubnet",
+                    "address_prefixes": [
+                        "10.0.1.0/26"
+                    ]
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_firewall.hub",
+            "mode": "managed",
+            "type": "azurerm_firewall",
+            "name": "hub",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "create"
+                ],
+                "before": null,
+                "after": {
+                    "name": "afw-hub-weu",
+                    "sku_name": "AZFW_VNet",
+                    "sku_tier": "Premium"
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_network_security_group.legacy",
+            "mode": "managed",
+            "type": "azurerm_network_security_group",
+            "name": "legacy",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "delete"
+                ],
+                "before": {
+                    "name": "nsg-legacy-dmz",
+                    "location": "westeurope"
+                },
+                "after": null,
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "module.peering.azurerm_virtual_network_peering.hub_to_spoke",
+            "mode": "managed",
+            "type": "azurerm_virtual_network_peering",
+            "name": "hub_to_spoke",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "delete",
+                    "create"
+                ],
+                "before": {
+                    "name": "hub-to-spoke",
+                    "allow_forwarded_traffic": false
+                },
+                "after": {
+                    "name": "hub-to-spoke",
+                    "allow_forwarded_traffic": true
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {},
+                "replace_paths": [
+                    [
+                        "allow_forwarded_traffic"
+                    ]
+                ]
+            },
+            "module_address": "module.peering"
+        }
+    ],
+    "output_changes": {
+        "firewall_private_ip": {
+            "actions": [
+                "create"
+            ],
+            "before": null,
+            "after": null,
+            "after_unknown": true
+        }
+    }
+}

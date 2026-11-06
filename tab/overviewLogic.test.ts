@@ -2,23 +2,25 @@ import { describe, it, expect } from 'vitest';
 import {
     type ActionKind,
     type ResourceChange,
-    emptyCounts,
 } from './planLogic';
 import {
     ALL_PLANS_VALUE,
+    type OverviewFilter,
+    VIEWER_SETTINGS_KEY,
+    anyPlanWithoutChanges,
+    buildResourceRows,
+    defaultHideNoChangePlans,
     defaultSelectorValue,
-    dominantAction,
+    duplicateNameSuffixes,
     errorSummary,
-    groupPlanNames,
-    hiddenNoChangeCount,
     loadedSummary,
+    noopRowCount,
     pendingSummary,
-    planAriaLabel,
     planId,
+    plansHiddenFromSelector,
+    rowMatches,
     shouldShowOverview,
-    shouldShowPlan,
     uniqueTerraformVersions,
-    visibleGroups,
 } from './overviewLogic';
 
 function rc(address: string, type: string, actions: string[]): ResourceChange {
@@ -79,8 +81,6 @@ describe('loadedSummary / hasChanges', () => {
         expect(summary.counts.read).toBe(1);
         expect(summary.counts.noop).toBe(1);
         expect(summary.terraformVersion).toBe('1.7.4');
-        expect(summary.haystack).toContain('azurerm_resource_group.main');
-        expect(summary.haystack).toContain('azurerm_key_vault');
     });
 
     it('treats a plan with only no-op resources as having no changes', () => {
@@ -92,7 +92,7 @@ describe('loadedSummary / hasChanges', () => {
         expect(summary.hasChanges).toBe(false);
     });
 
-    it('treats output-only changes as having changes so they are not hidden', () => {
+    it('treats output-only changes as having changes', () => {
         const summary = loadedSummary('outputs-only', {
             resource_changes: [],
             output_changes: {
@@ -103,186 +103,134 @@ describe('loadedSummary / hasChanges', () => {
         expect(summary.counts.create).toBe(0);
     });
 
-    it('pending summaries stay visible until loaded', () => {
+    it('pending and failed summaries have unknown change status', () => {
         const s = pendingSummary('still-loading');
         expect(s.status).toBe('pending');
         expect(s.hasChanges).toBeNull();
-        expect(shouldShowPlan(s, {
-            search: '',
-            onlyWithChanges: true,
-            actionFilters: new Set(),
-        })).toBe(true);
+        const e = errorSummary('broken', 'not json');
+        expect(e.status).toBe('error');
+        expect(e.hasChanges).toBeNull();
+        expect(e.error).toBe('not json');
     });
 });
 
-describe('dominantAction', () => {
-    it('prefers delete, then recreate, then update, then create', () => {
-        const c = emptyCounts();
-        expect(dominantAction(c)).toBeNull();
-        c.create = 2;
-        expect(dominantAction(c)).toBe('create');
-        c.update = 1;
-        expect(dominantAction(c)).toBe('update');
-        c.recreate = 1;
-        expect(dominantAction(c)).toBe('recreate');
-        c.delete = 1;
-        expect(dominantAction(c)).toBe('delete');
+describe('buildResourceRows', () => {
+    const hub = { id: 'id-hub', label: 'network-hub', resources: [
+        rc('azurerm_subnet.app', 'azurerm_subnet', ['create']),
+        rc('azurerm_dns_zone.priv', 'azurerm_dns_zone', ['no-op']),
+    ] };
+    const aks = { id: 'id-aks', label: 'aks-cluster', resources: [
+        rc('azurerm_kubernetes_cluster.main', 'azurerm_kubernetes_cluster', ['update']),
+    ] };
+
+    it('flattens plans in order, tagging each row with its plan', () => {
+        const rows = buildResourceRows([hub, aks]);
+        expect(rows.map(r => [r.planLabel, r.resource.address, r.kind])).toEqual([
+            ['network-hub', 'azurerm_subnet.app', 'create'],
+            ['network-hub', 'azurerm_dns_zone.priv', 'noop'],
+            ['aks-cluster', 'azurerm_kubernetes_cluster.main', 'update'],
+        ]);
+        expect(rows[2].planId).toBe('id-aks');
+    });
+
+    it('gives unique keys even when two plans share an address', () => {
+        const a = { id: 'a', label: 'a', resources: [rc('x.y', 'x', ['create'])] };
+        const b = { id: 'b', label: 'b', resources: [rc('x.y', 'x', ['create'])] };
+        const dup = { id: 'c', label: 'c', resources: [rc('x.y', 'x', ['delete']), rc('x.y', 'x', ['create'])] };
+        const keys = buildResourceRows([a, b, dup]).map(r => r.key);
+        expect(new Set(keys).size).toBe(4);
+    });
+
+    it('counts no-op rows for the unchanged-resources toggle', () => {
+        expect(noopRowCount(buildResourceRows([hub, aks]))).toBe(1);
     });
 });
 
-describe('groupPlanNames', () => {
-    it('returns a flat list for a single name or unique tokens', () => {
-        expect(groupPlanNames(['staging'])).toEqual([
-            { key: '', items: [{ id: 'staging', name: 'staging', label: 'staging' }] },
-        ]);
-        expect(groupPlanNames(['dev', 'staging', 'prod'])[0].key).toBe('');
+describe('rowMatches', () => {
+    const rows = buildResourceRows([
+        { id: 'h', label: 'prod-platform-network-hub-vnet', resources: [
+            rc('azurerm_subnet.app', 'azurerm_subnet', ['create']),
+            rc('azurerm_dns_zone.priv', 'azurerm_dns_zone', ['no-op']),
+        ] },
+        { id: 'l', label: 'legacy', resources: [
+            rc('azurerm_app_service.old', 'azurerm_app_service', ['delete']),
+        ] },
+    ]);
+    const [subnet, zone, app] = rows;
+    const f = (over: Partial<OverviewFilter> = {}): OverviewFilter => ({
+        search: '', actionFilters: new Set<ActionKind>(), showNoop: false, ...over,
     });
 
-    it('groups hyphenated Terragrunt-style names by deployment unit', () => {
-        const groups = groupPlanNames([
-            'prod-apps-aks-cluster-weu',
-            'prod-apps-sql-primary',
-            'prod-platform-dns-private-zones',
-            'prod-platform-network-hub-vnet',
-        ]);
-        expect(groups.map(g => g.key)).toEqual(['prod-apps', 'prod-platform']);
-        expect(groups[0].items.map(i => i.label)).toEqual(['aks-cluster-weu', 'sql-primary']);
-        expect(groups[1].items.map(i => i.label)).toEqual(['dns-private-zones', 'network-hub-vnet']);
-    });
-
-    it('groups path-style attachment names by the first segment', () => {
-        const groups = groupPlanNames([
-            'prod-apps/aks/cluster-weu',
-            'prod-platform/dns/private-zones',
-            'prod-platform/network/hub-vnet',
-        ]);
-        expect(groups.map(g => g.key)).toEqual(['prod-apps', 'prod-platform']);
-        expect(groups[1].items.map(i => i.label)).toEqual([
-            'dns/private-zones',
-            'network/hub-vnet',
-        ]);
-    });
-
-    it('does not invent groups when every bucket would have one item', () => {
-        const groups = groupPlanNames(['staging', 'prod-no-changes']);
-        expect(groups).toHaveLength(1);
-        expect(groups[0].key).toBe('');
-        expect(groups[0].items.map(i => i.name)).toEqual(['staging', 'prod-no-changes']);
-    });
-
-    it('wraps a shared prefix when that is the only useful split', () => {
-        const groups = groupPlanNames(['app-web', 'app-api']);
-        expect(groups).toEqual([{
-            key: 'app',
-            items: [
-                { id: 'app-web', name: 'app-web', label: 'web' },
-                { id: 'app-api', name: 'app-api', label: 'api' },
-            ],
-        }]);
-    });
-
-    it('prefers unit-level groups over a single shared first token', () => {
-        const groups = groupPlanNames([
-            'prod-apps-aks-cluster-weu',
-            'prod-apps-sql-primary',
-            'prod-platform-network-hub-vnet',
-            'shared-monitoring',
-        ]);
-        expect(groups.map(g => g.key)).toEqual([
-            'prod-apps',
-            'prod-platform',
-            'shared-monitoring',
-        ]);
-    });
-});
-
-describe('shouldShowPlan / hiddenNoChangeCount', () => {
-    const changed = loadedSummary('prod-platform-network-hub-vnet', {
-        resource_changes: [rc('azurerm_subnet.app', 'azurerm_subnet', ['create'])],
-    });
-    const quiet = loadedSummary('prod-platform-dns-private-zones', {
-        resource_changes: [rc('azurerm_dns_zone.priv', 'azurerm_dns_zone', ['no-op'])],
-    });
-    const failed = errorSummary('prod-apps-aks-cluster-weu', 'not json');
-
-    it('hides loaded no-change plans when the toggle is on', () => {
-        const filter = { search: '', onlyWithChanges: true, actionFilters: new Set<ActionKind>() };
-        expect(shouldShowPlan(changed, filter)).toBe(true);
-        expect(shouldShowPlan(quiet, filter)).toBe(false);
-        expect(shouldShowPlan(failed, filter)).toBe(true);
-        expect(hiddenNoChangeCount([changed, quiet, failed], filter)).toBe(1);
-    });
-
-    it('shows no-change plans when the toggle is off', () => {
-        const filter = { search: '', onlyWithChanges: false, actionFilters: new Set<ActionKind>() };
-        expect(shouldShowPlan(quiet, filter)).toBe(true);
-        expect(hiddenNoChangeCount([changed, quiet], filter)).toBe(0);
-    });
-
-    it('filters by plan name and resource address/type', () => {
-        const byName = { search: 'hub-vnet', onlyWithChanges: false, actionFilters: new Set<ActionKind>() };
-        expect(shouldShowPlan(changed, byName)).toBe(true);
-        expect(shouldShowPlan(quiet, byName)).toBe(false);
-
-        const byType = { search: 'azurerm_subnet', onlyWithChanges: false, actionFilters: new Set<ActionKind>() };
-        expect(shouldShowPlan(changed, byType)).toBe(true);
-        expect(shouldShowPlan(quiet, byType)).toBe(false);
+    it('hides no-op resources unless showNoop is on', () => {
+        expect(rowMatches(zone, f())).toBe(false);
+        expect(rowMatches(zone, f({ showNoop: true }))).toBe(true);
+        expect(rowMatches(subnet, f())).toBe(true);
     });
 
     it('filters by summary-card action', () => {
-        const onlyDelete = {
-            search: '',
-            onlyWithChanges: false,
-            actionFilters: new Set<ActionKind>(['delete']),
-        };
-        expect(shouldShowPlan(changed, onlyDelete)).toBe(false);
-        const withDelete = loadedSummary('legacy', {
-            resource_changes: [rc('azurerm_app_service.old', 'azurerm_app_service', ['delete'])],
-        });
-        expect(shouldShowPlan(withDelete, onlyDelete)).toBe(true);
+        const onlyDelete = f({ actionFilters: new Set<ActionKind>(['delete']) });
+        expect(rowMatches(subnet, onlyDelete)).toBe(false);
+        expect(rowMatches(app, onlyDelete)).toBe(true);
+    });
+
+    it('searches resource address, resource type, and plan name', () => {
+        expect(rowMatches(subnet, f({ search: 'subnet.app' }))).toBe(true);
+        expect(rowMatches(app, f({ search: 'azurerm_app_service' }))).toBe(true);
+        expect(rowMatches(subnet, f({ search: 'HUB-VNET' }))).toBe(true);
+        expect(rowMatches(app, f({ search: 'hub-vnet' }))).toBe(false);
     });
 });
 
-describe('visibleGroups', () => {
-    it('drops groups whose members are all filtered out', () => {
-        const names = [
-            'prod-apps-aks-cluster-weu',
-            'prod-apps-sql-primary',
-            'prod-platform-dns-private-zones',
-        ];
-        const groups = groupPlanNames(names);
-        const summaries = new Map([
-            [names[0], loadedSummary(names[0], {
-                resource_changes: [rc('azurerm_kubernetes_cluster.aks', 'azurerm_kubernetes_cluster', ['update'])],
-            })],
-            [names[1], loadedSummary(names[1], { resource_changes: [] })],
-            [names[2], loadedSummary(names[2], { resource_changes: [] })],
-        ]);
-        const shown = visibleGroups(groups, summaries, {
-            search: '',
-            onlyWithChanges: true,
-            actionFilters: new Set(),
-        });
-        expect(shown.map(g => g.key)).toEqual(['prod-apps']);
-        expect(shown[0].items.map(i => i.name)).toEqual(['prod-apps-aks-cluster-weu']);
+describe('hiding no-change plans from the dropdown', () => {
+    const quietFlagged = loadedSummary('quiet', {
+        resource_changes: [],
+        [VIEWER_SETTINGS_KEY]: { hideNoChangePlans: true },
+    }, 'q');
+    const quiet = loadedSummary('quiet2', { resource_changes: [] }, 'q2');
+    const busy = loadedSummary('busy', { resource_changes: [rc('a.b', 'a', ['create'])] }, 'b');
+    const outputsOnly = loadedSummary('outs', {
+        resource_changes: [],
+        output_changes: { url: { actions: ['update'] } },
+    }, 'o');
+    const pending = pendingSummary('later', 'p');
+    const failed = errorSummary('broken', 'boom', 'e');
+
+    it('reads the task setting from the attached plan', () => {
+        expect(quietFlagged.hideWhenNoChanges).toBe(true);
+        expect(quiet.hideWhenNoChanges).toBe(false);
+    });
+
+    it('defaults the checkbox on when any loaded plan asked for it', () => {
+        expect(defaultHideNoChangePlans([quiet, busy])).toBe(false);
+        expect(defaultHideNoChangePlans([quiet, busy, quietFlagged])).toBe(true);
+        expect(defaultHideNoChangePlans([pending])).toBe(false);
+    });
+
+    it('hides only loaded plans with no resource or output changes', () => {
+        const all = [quietFlagged, quiet, busy, outputsOnly, pending, failed];
+        expect([...plansHiddenFromSelector(all, true)].sort()).toEqual(['q', 'q2']);
+        expect(plansHiddenFromSelector(all, false).size).toBe(0);
+    });
+
+    it('knows when there is a plan the checkbox could hide', () => {
+        expect(anyPlanWithoutChanges([busy, outputsOnly, pending, failed])).toBe(false);
+        expect(anyPlanWithoutChanges([busy, quiet])).toBe(true);
+    });
+
+    it('never hides the plan currently shown', () => {
+        expect([...plansHiddenFromSelector([quiet, quietFlagged], true, 'q')]).toEqual(['q2']);
     });
 });
 
-describe('planAriaLabel', () => {
-    it('includes loading, error, no-change, and action counts', () => {
-        expect(planAriaLabel(pendingSummary('hub'), 'hub')).toBe('hub, loading');
-        expect(planAriaLabel(errorSummary('hub', 'boom'), 'network-hub-vnet'))
-            .toBe('network-hub-vnet, failed to load');
-        expect(planAriaLabel(loadedSummary('quiet', { resource_changes: [] }), 'quiet'))
-            .toBe('quiet, no changes');
-        const changed = loadedSummary('hub', {
-            resource_changes: [
-                rc('a.x', 'a', ['create']),
-                rc('b.y', 'b', ['update']),
-                rc('c.z', 'c', ['delete']),
-            ],
-        });
-        expect(planAriaLabel(changed, 'hub')).toBe('hub, 1 delete, 1 update, 1 create');
+describe('duplicateNameSuffixes', () => {
+    it('adds a short record suffix only to names that repeat', () => {
+        const a = { name: 'prod', timelineId: 't1', recordId: 'abcd1234ffff' };
+        const b = { name: 'prod', timelineId: 't2', recordId: 'ef567890ffff' };
+        const c = { name: 'dev', timelineId: 't1', recordId: '11112222' };
+        const m = duplicateNameSuffixes([a, b, c]);
+        expect(m.get(planId(a))).toBe(' (abcd1234)');
+        expect(m.get(planId(b))).toBe(' (ef567890)');
+        expect(m.has(planId(c))).toBe(false);
     });
 });
 

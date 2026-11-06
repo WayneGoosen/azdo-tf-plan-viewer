@@ -1,8 +1,10 @@
 // =============================================================================
-// All-plans overview — pure grouping, filtering, and selection helpers.
+// All-plans overview — pure summary, row-building, and filtering helpers.
 //
 // Used by the tab renderer when a build has more than one plan attachment.
-// Kept free of DOM so the defaults, grouping, and filters can be unit-tested.
+// The overview lists every resource change across all plans on one page,
+// each tagged with the plan it came from. Kept free of DOM so the defaults
+// and filters can be unit-tested.
 // =============================================================================
 
 import {
@@ -26,7 +28,15 @@ export function planId(ref: { name: string; timelineId?: string; recordId?: stri
     return `${ref.timelineId ?? ''}\t${ref.recordId ?? ''}\t${ref.name}`;
 }
 
-const ACTION_PRIORITY = ['delete', 'recreate', 'update', 'create'] as const;
+/**
+ * Top-level key the task adds to the attached plan JSON for display settings.
+ * Contract with buildAndReleaseTask/viewerSettings.ts — keep both in sync.
+ */
+export const VIEWER_SETTINGS_KEY = 'terraform_plan_viewer';
+
+export interface ViewerSettings {
+    hideNoChangePlans?: boolean;
+}
 
 export type LoadStatus = 'pending' | 'loaded' | 'error';
 
@@ -37,28 +47,47 @@ export interface PlanSummary {
     counts: Record<ActionKind, number>;
     /** True when any resource or output would change. Unknown while pending. */
     hasChanges: boolean | null;
-    /** Lowercased blob of name + resource addresses/types for search. */
-    haystack: string;
     terraformVersion?: string;
+    /** The task step asked for this plan to be hidden from the dropdown when it has no changes. */
+    hideWhenNoChanges?: boolean;
     error?: string;
-}
-
-export interface PlanGroupItem {
-    id: string;
-    name: string;
-    label: string;
-}
-
-export interface PlanGroup {
-    /** Empty string means the list is flat (grouping did not help). */
-    key: string;
-    items: PlanGroupItem[];
 }
 
 export interface OverviewFilter {
     search: string;
-    onlyWithChanges: boolean;
     actionFilters: ReadonlySet<ActionKind>;
+    /** No-op resources are hidden unless this is on (same as the single-plan view). */
+    showNoop: boolean;
+}
+
+/** One resource change in the combined list, tagged with its source plan. */
+export interface ResourceRow {
+    /** Unique across all plans; stable across re-renders (used for open state and focus). */
+    key: string;
+    planId: string;
+    /** Display label for the plan, including any duplicate-name suffix. */
+    planLabel: string;
+    resource: ResourceChange;
+    kind: ActionKind;
+}
+
+/**
+ * Short suffixes that tell apart attachments sharing a display name (e.g. two
+ * jobs both publishing `prod`). Keyed by {@link planId}; plans with a unique
+ * name get no entry.
+ */
+export function duplicateNameSuffixes(
+    refs: Array<{ name: string; timelineId?: string; recordId?: string }>,
+): Map<string, string> {
+    const nameCounts = new Map<string, number>();
+    for (const r of refs) nameCounts.set(r.name, (nameCounts.get(r.name) ?? 0) + 1);
+    const out = new Map<string, string>();
+    for (const r of refs) {
+        if ((nameCounts.get(r.name) ?? 0) > 1 && r.recordId) {
+            out.set(planId(r), ` (${r.recordId.slice(0, 8)})`);
+        }
+    }
+    return out;
 }
 
 export function shouldShowOverview(planCount: number): boolean {
@@ -77,7 +106,6 @@ export function pendingSummary(name: string, id: string = name): PlanSummary {
         status: 'pending',
         counts: emptyCounts(),
         hasChanges: null,
-        haystack: name.toLowerCase(),
     };
 }
 
@@ -87,22 +115,19 @@ export function loadedSummary(
         resource_changes?: ResourceChange[];
         terraform_version?: string;
         output_changes?: Record<string, { actions: string[] }>;
+        [VIEWER_SETTINGS_KEY]?: ViewerSettings;
     },
     id: string = name,
 ): PlanSummary {
     const counts = countResourceChanges(plan.resource_changes ?? []);
-    const haystack = [
-        name,
-        ...(plan.resource_changes ?? []).flatMap(r => [r.address, r.type]),
-    ].join('\n').toLowerCase();
     return {
         id,
         name,
         status: 'loaded',
         counts,
         hasChanges: countsHaveChanges(counts) || outputsHaveChanges(plan.output_changes),
-        haystack,
         terraformVersion: plan.terraform_version,
+        hideWhenNoChanges: plan[VIEWER_SETTINGS_KEY]?.hideNoChangePlans === true,
     };
 }
 
@@ -113,29 +138,8 @@ export function errorSummary(name: string, error: string, id: string = name): Pl
         status: 'error',
         counts: emptyCounts(),
         hasChanges: null,
-        haystack: name.toLowerCase(),
         error,
     };
-}
-
-const ACTION_WORDS: Record<typeof ACTION_PRIORITY[number], string> = {
-    create: 'create',
-    update: 'update',
-    recreate: 'recreate',
-    delete: 'delete',
-};
-
-/** Accessible name for an overview row: display label plus status or counts. */
-export function planAriaLabel(summary: PlanSummary, label: string): string {
-    const name = label || summary.name;
-    if (summary.status === 'pending') return `${name}, loading`;
-    if (summary.status === 'error') return `${name}, failed to load`;
-    const bits: string[] = [];
-    for (const k of ACTION_PRIORITY) {
-        if (summary.counts[k] > 0) bits.push(`${summary.counts[k]} ${ACTION_WORDS[k]}`);
-    }
-    if (bits.length === 0) return `${name}, no changes`;
-    return `${name}, ${bits.join(', ')}`;
 }
 
 function outputsHaveChanges(outputs: Record<string, { actions: string[] }> | undefined): boolean {
@@ -146,13 +150,6 @@ function outputsHaveChanges(outputs: Record<string, { actions: string[] }> | und
     });
 }
 
-export function dominantAction(counts: Record<ActionKind, number>): ActionKind | null {
-    for (const k of ACTION_PRIORITY) {
-        if (counts[k] > 0) return k;
-    }
-    return null;
-}
-
 export function uniqueTerraformVersions(summaries: PlanSummary[]): string[] {
     const set = new Set<string>();
     for (const s of summaries) {
@@ -161,142 +158,90 @@ export function uniqueTerraformVersions(summaries: PlanSummary[]): string[] {
     return [...set].sort((a, b) => a.localeCompare(b));
 }
 
-export function shouldShowPlan(summary: PlanSummary, filter: OverviewFilter): boolean {
-    if (filter.onlyWithChanges && summary.status === 'loaded' && summary.hasChanges === false) {
-        return false;
-    }
-    if (!matchesSearch(summary, filter.search)) return false;
-    if (summary.status === 'loaded' && !matchesActionFilter(summary, filter.actionFilters)) {
-        return false;
-    }
-    return true;
-}
+// --------------------------- Plan dropdown filter ---------------------------
 
-function matchesSearch(summary: PlanSummary, search: string): boolean {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return summary.haystack.includes(q);
-}
-
-function matchesActionFilter(summary: PlanSummary, filters: ReadonlySet<ActionKind>): boolean {
-    if (filters.size === 0) return true;
-    for (const k of ACTION_PRIORITY) {
-        if (filters.has(k) && summary.counts[k] > 0) return true;
+/**
+ * Default for the tab's "Hide plans without changes" checkbox: on when any
+ * loaded plan's task step set `hideNoChangePlans`. Plans from one pipeline
+ * loop normally share the setting, so "any" and "all" agree in practice.
+ */
+export function defaultHideNoChangePlans(summaries: Iterable<PlanSummary>): boolean {
+    for (const s of summaries) {
+        if (s.status === 'loaded' && s.hideWhenNoChanges) return true;
     }
     return false;
 }
 
-export function hiddenNoChangeCount(summaries: PlanSummary[], filter: OverviewFilter): number {
-    if (!filter.onlyWithChanges) return 0;
-    let n = 0;
+/**
+ * True once any loaded plan is known to have no changes. Until then the
+ * "Hide plans without changes" checkbox would have nothing to hide, so the tab
+ * keeps it out of view.
+ */
+export function anyPlanWithoutChanges(summaries: Iterable<PlanSummary>): boolean {
     for (const s of summaries) {
-        if (s.status !== 'loaded' || s.hasChanges !== false) continue;
-        // Count plans the toggle hid, even if search would also hide them.
-        n++;
+        if (s.status === 'loaded' && s.hasChanges === false) return true;
     }
-    return n;
-}
-
-// ------------------------------ Grouping ------------------------------------
-
-interface ParsedPlan {
-    id: string;
-    name: string;
-    parts: string[];
-    join: string;
-}
-
-function splitPlanName(name: string): { parts: string[]; join: string } {
-    if (/[\\/]/.test(name)) {
-        return { parts: name.split(/[\\/]+/).filter(Boolean), join: '/' };
-    }
-    return { parts: name.split('-').filter(Boolean), join: '-' };
-}
-
-function bucketAtDepth(parsed: ParsedPlan[], depth: number): PlanGroup[] {
-    const buckets = new Map<string, PlanGroup>();
-    const order: string[] = [];
-    for (const p of parsed) {
-        const keyParts = p.parts.slice(0, depth + 1);
-        const rest = p.parts.slice(depth + 1);
-        const key = keyParts.join(p.join) || p.name;
-        const label = rest.length ? rest.join(p.join) : p.name;
-        let g = buckets.get(key);
-        if (!g) {
-            g = { key, items: [] };
-            buckets.set(key, g);
-            order.push(key);
-        }
-        g.items.push({ id: p.id, name: p.name, label });
-    }
-    return order.map(k => buckets.get(k)!);
-}
-
-function groupScore(groups: PlanGroup[], total: number): number | null {
-    const multi = groups.filter(g => g.items.length >= 2).length;
-    if (multi === 0) return null;
-    const stripped = groups.some(g => g.items.some(i => i.label !== i.name));
-    if (!stripped) return null;
-    if (groups.length === 1 && multi === 1) {
-        // A single wrapper is useful (app-web / app-api → group "app") but
-        // lose out to a deeper split that actually differentiates units.
-    } else if (groups.length < 2) {
-        return null;
-    }
-    const maxShare = Math.max(...groups.map(g => g.items.length)) / total;
-    return multi * 10 + groups.length - maxShare * 8;
+    return false;
 }
 
 /**
- * Cluster attachment names into groups using path separators when present,
- * otherwise hyphens. Picks the depth that yields the most multi-item groups
- * without collapsing everything into one dominant bucket.
- *
- * Terragrunt pipelines often publish names like `prod-platform-network-hub-vnet`
- * (path separators get stripped by attachmentName validation). Path-style names
- * such as `prod-platform/network/hub-vnet` from ##vso[task.addattachment] work
- * the same way.
+ * Plan ids to leave out of the dropdown. Only loaded plans known to have no
+ * changes are hidden; pending and failed plans stay listed. `keepId` (the plan
+ * currently shown) always stays so the dropdown never loses its selection.
  */
-export function groupPlans(plans: Array<{ id: string; name: string }>): PlanGroup[] {
-    const flat: PlanGroup[] = [{
-        key: '',
-        items: plans.map(p => ({ id: p.id, name: p.name, label: p.name })),
-    }];
-    if (plans.length < 2) return flat;
-
-    const parsed: ParsedPlan[] = plans.map(p => ({ id: p.id, name: p.name, ...splitPlanName(p.name) }));
-    if (parsed.every(p => p.parts.length <= 1)) return flat;
-
-    const maxDepth = Math.max(0, Math.max(...parsed.map(p => p.parts.length)) - 1);
-    let best: { score: number; groups: PlanGroup[] } | null = null;
-
-    for (let depth = 0; depth <= maxDepth; depth++) {
-        const groups = bucketAtDepth(parsed, depth);
-        const score = groupScore(groups, plans.length);
-        if (score === null) continue;
-        if (!best || score > best.score) best = { score, groups };
-    }
-
-    return best ? best.groups : flat;
-}
-
-/** Convenience wrapper for tests and callers that only have display names. */
-export function groupPlanNames(names: string[]): PlanGroup[] {
-    return groupPlans(names.map(name => ({ id: name, name })));
-}
-
-export function visibleGroups(
-    groups: PlanGroup[],
-    summaries: Map<string, PlanSummary>,
-    filter: OverviewFilter,
-): PlanGroup[] {
-    const out: PlanGroup[] = [];
-    for (const g of groups) {
-        const items = g.items.filter(i => {
-            const s = summaries.get(i.id);
-            return s ? shouldShowPlan(s, filter) : false;
-        });
-        if (items.length) out.push({ key: g.key, items });
+export function plansHiddenFromSelector(
+    summaries: Iterable<PlanSummary>,
+    hide: boolean,
+    keepId?: string,
+): Set<string> {
+    const out = new Set<string>();
+    if (!hide) return out;
+    for (const s of summaries) {
+        if (s.status === 'loaded' && s.hasChanges === false && s.id !== keepId) out.add(s.id);
     }
     return out;
+}
+
+// ------------------------------ Resource rows -------------------------------
+
+/**
+ * Flatten loaded plans into one list of resource rows, in plan order and then
+ * each plan's own resource order. Plans not yet loaded contribute nothing.
+ */
+export function buildResourceRows(
+    plans: Array<{ id: string; label: string; resources: ResourceChange[] }>,
+): ResourceRow[] {
+    const rows: ResourceRow[] = [];
+    for (const p of plans) {
+        const seen = new Map<string, number>();
+        for (const r of p.resources) {
+            // Addresses are unique within a plan except for deposed objects;
+            // a counter keeps keys unique without depending on that.
+            const n = seen.get(r.address) ?? 0;
+            seen.set(r.address, n + 1);
+            rows.push({
+                key: `${p.id}\n${r.address}${n ? `\n${n}` : ''}`,
+                planId: p.id,
+                planLabel: p.label,
+                resource: r,
+                kind: classifyAction(r.change.actions),
+            });
+        }
+    }
+    return rows;
+}
+
+/** Search matches resource address, resource type, or the plan's name. */
+export function rowMatches(row: ResourceRow, filter: OverviewFilter): boolean {
+    if (row.kind === 'noop' && !filter.showNoop) return false;
+    if (filter.actionFilters.size > 0 && !filter.actionFilters.has(row.kind)) return false;
+    const q = filter.search.trim().toLowerCase();
+    if (!q) return true;
+    return row.resource.address.toLowerCase().includes(q)
+        || row.resource.type.toLowerCase().includes(q)
+        || row.planLabel.toLowerCase().includes(q);
+}
+
+export function noopRowCount(rows: ResourceRow[]): number {
+    return rows.filter(r => r.kind === 'noop').length;
 }

@@ -11,6 +11,7 @@ import {
     countsHaveChanges,
     addCounts,
     emptyCounts,
+    toggleInSet,
 } from './planLogic';
 
 interface TerraformPlan {
@@ -317,5 +318,15 @@ describe('issue #6 regression: sensitive values should be shown', () => {
         const clientSecretDiff = diff.changed.find(d => d.key === 'client_secret');
         expect(clientSecretDiff).toBeDefined();
         expect(clientSecretDiff?.after).toBe('(sensitive)');
+    });
+});
+
+describe('toggleInSet', () => {
+    it('adds a missing item and removes a present one', () => {
+        const set = new Set<string>();
+        toggleInSet(set, 'delete');
+        expect([...set]).toEqual(['delete']);
+        toggleInSet(set, 'delete');
+        expect(set.size).toBe(0);
     });
 });

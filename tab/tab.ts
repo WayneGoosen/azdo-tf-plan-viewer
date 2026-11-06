@@ -26,6 +26,7 @@ import {
     type ResourceChange,
     type ResourceDiff,
     addCounts,
+    toggleInSet,
     buildTree,
     classifyAction,
     computeDiff,
@@ -37,23 +38,32 @@ import {
     ALL_PLANS_VALUE,
     type OverviewFilter,
     type PlanSummary,
+    type ResourceRow,
+    type ViewerSettings,
+    VIEWER_SETTINGS_KEY,
+    anyPlanWithoutChanges,
+    buildResourceRows,
+    defaultHideNoChangePlans,
     defaultSelectorValue,
-    dominantAction,
+    duplicateNameSuffixes,
     errorSummary,
-    groupPlans,
-    hiddenNoChangeCount,
     loadedSummary,
+    noopRowCount,
     pendingSummary,
-    planAriaLabel,
     planId,
+    plansHiddenFromSelector,
+    rowMatches,
     uniqueTerraformVersions,
-    visibleGroups,
 } from './overviewLogic';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
-/** Parallel attachment downloads when filling the All-plans overview. */
-const OVERVIEW_FETCH_CONCURRENCY = 6;
+/**
+ * Parallel attachment downloads when filling the All-plans overview. Kept
+ * modest so a plan the user opens doesn't compete with too many in-flight
+ * background downloads (the ADO attachment call can't be cancelled).
+ */
+const OVERVIEW_FETCH_CONCURRENCY = 4;
 
 // ----------------------------- Type definitions -----------------------------
 
@@ -63,6 +73,7 @@ interface TerraformPlan {
     resource_changes?: ResourceChange[];
     output_changes?: Record<string, OutputChange>;
     resource_drift?: ResourceChange[];
+    [VIEWER_SETTINGS_KEY]?: ViewerSettings;
 }
 
 interface OutputChange {
@@ -210,7 +221,11 @@ function renderActionCards(
         const isActive = activeFilters.has(kind);
         const c = el('button', {
             class: `summary-card summary-${kind}` + (isActive ? ' is-active' : ''),
-            attrs: { type: 'button', 'aria-pressed': isActive ? 'true' : 'false' },
+            attrs: {
+                type: 'button',
+                'aria-pressed': isActive ? 'true' : 'false',
+                'data-focus-key': `card:${kind}`,
+            },
         }, [
             el('span', { class: 'summary-count', text: String(counts[kind]) }),
             el('span', { class: 'summary-label', text: label }),
@@ -232,8 +247,7 @@ function renderSummary(state: RenderState): HTMLElement {
 }
 
 function toggleFilter(state: RenderState, kind: ActionKind) {
-    if (state.activeFilters.has(kind)) state.activeFilters.delete(kind);
-    else state.activeFilters.add(kind);
+    toggleInSet(state.activeFilters, kind);
     rerenderSummary(state);
     rerenderTree(state);
 }
@@ -371,11 +385,25 @@ function renderCountPills(counts: Record<ActionKind, number>): HTMLElement {
     return pills;
 }
 
+/**
+ * Address text with line-break opportunities after each dot, so long module
+ * paths wrap between segments on narrow screens instead of mid-word.
+ * <wbr> adds no text, so copying the address still yields the plain string.
+ */
+function breakableAddress(address: string): Child[] {
+    const out: Child[] = [];
+    address.split('.').forEach((part, i, parts) => {
+        out.push(i < parts.length - 1 ? `${part}.` : part);
+        if (i < parts.length - 1) out.push(document.createElement('wbr'));
+    });
+    return out;
+}
+
 function renderResource(r: ResourceChange): HTMLElement {
     const kind = classifyAction(r.change.actions);
     const summary = el('summary', { class: 'resource-summary' }, [
         el('span', { class: `action-badge action-${kind}`, text: ACTION_LABEL[kind] }),
-        el('code', { class: 'resource-address', text: r.address }),
+        el('code', { class: 'resource-address' }, breakableAddress(r.address)),
         el('span', { class: 'resource-type', text: r.type }),
     ]);
 
@@ -529,8 +557,7 @@ async function listPlans(): Promise<PlanRef[]> {
         refs.push({ name: att.name, projectId, buildId, timelineId: m[1], recordId: m[2] });
     }
     if (!refs.length) throw new Error('Plan attachments are missing usable download links.');
-
-    refs.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    // Ordering is applied once, in renderPlans.
     return refs;
 }
 
@@ -556,18 +583,22 @@ export type PlanFetcher = (ref: PlanRef) => Promise<TerraformPlan>;
 type View = { kind: 'all' } | { kind: 'plan'; ref: PlanRef };
 
 interface OverviewSession {
-    onlyWithChanges: boolean;
     searchTerm: string;
     activeFilters: Set<ActionKind>;
-    groups: ReturnType<typeof groupPlans>;
+    showNoop: boolean;
+    /** Insertion order is the sorted plan order, and re-setting a key keeps its slot. */
     summaries: Map<string, PlanSummary>;
-    /** Explicit open/closed state for group keys; missing keys default to open. */
-    groupOpen: Map<string, boolean>;
+    /** Disambiguating suffix per plan id for attachments sharing a name. */
+    nameSuffixes: Map<string, string>;
+    /** Row keys the user has expanded; survives re-renders as plans finish loading. */
+    openKeys: Set<string>;
     mounted: {
-        summaryHost: HTMLElement;
         metaHost: HTMLElement;
+        summaryHost: HTMLElement;
+        buttonsHost: HTMLElement;
         listHost: HTMLElement;
-        hiddenHost: HTMLElement;
+        outputsHost: HTMLElement;
+        noticeHost: HTMLElement;
     } | null;
 }
 
@@ -598,20 +629,62 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
     }
 
     const overview: OverviewSession = {
-        onlyWithChanges: true,
         searchTerm: '',
         activeFilters: new Set(),
-        groups: groupPlans(refs.map(r => ({ id: planId(r), name: r.name }))),
+        showNoop: false,
         summaries,
-        groupOpen: new Map(),
+        nameSuffixes: duplicateNameSuffixes(refs),
+        openKeys: new Set(),
         mounted: null,
     };
 
     let select: HTMLSelectElement | null = null;
+    let selectorOptions = new Map<string, HTMLOptionElement>();
+    let hideToggle: HTMLInputElement | null = null;
+    let hideToggleLabel: HTMLElement | null = null;
+    let hiddenCountLabel: HTMLElement | null = null;
+    // "Hide plans without changes": follows the task's hideNoChangePlans input
+    // until the viewer flips the checkbox, then the viewer's choice sticks.
+    let hideTouched = false;
+    let hideChoice = false;
+    const hideNoChangePlans = () => hideTouched ? hideChoice : defaultHideNoChangePlans(summaries.values());
+
+    /** Show/hide dropdown options as plans load or the checkbox changes. */
+    const syncSelector = () => {
+        if (!select) return;
+        const hide = hideNoChangePlans();
+        const keep = current.kind === 'plan' ? planId(current.ref) : undefined;
+        const hidden = plansHiddenFromSelector(summaries.values(), hide, keep);
+        // A <select> sizes itself to its longest option, so hiding plans would
+        // make it shrink and grow. Lock the width it has with every plan listed.
+        if (!select.style.width && select.isConnected && select.options.length === refs.length + 1) {
+            const width = select.getBoundingClientRect().width;
+            if (width > 0) select.style.width = `${Math.ceil(width)}px`;
+        }
+        const value = select.value;
+        // Re-append visible options in plan order; detach hidden ones.
+        for (const ref of refs) {
+            const opt = selectorOptions.get(planId(ref))!;
+            if (hidden.has(planId(ref))) opt.remove();
+            else select.appendChild(opt);
+        }
+        select.value = value;
+        if (hideToggle) hideToggle.checked = hide;
+        // Only offer the checkbox once there's a plan it could hide. It appears
+        // as plans load and then stays, so it never flickers in and out.
+        if (hideToggleLabel?.hidden && anyPlanWithoutChanges(summaries.values())) {
+            hideToggleLabel.hidden = false;
+        }
+        if (hiddenCountLabel) {
+            hiddenCountLabel.textContent = hidden.size ? `(${hidden.size} hidden)` : '';
+        }
+    };
     let current: View = refs.length > 1
         ? { kind: 'all' }
         : { kind: 'plan', ref: refs[0] };
     let overviewFetchStarted = false;
+    /** Settles when the plan the user opened finishes loading; null when idle. */
+    let userFetch: Promise<void> | null = null;
 
     const fetchOne = (ref: PlanRef): Promise<TerraformPlan> => {
         const id = planId(ref);
@@ -623,6 +696,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
             cache.set(id, plan);
             summaries.set(id, loadedSummary(ref.name, plan, id));
             inflight.delete(id);
+            syncSelector();
             return plan;
         }, err => {
             inflight.delete(id);
@@ -634,31 +708,87 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
     const filterOf = (): OverviewFilter => ({
         search: overview.searchTerm,
-        onlyWithChanges: overview.onlyWithChanges,
         actionFilters: overview.activeFilters,
+        showNoop: overview.showNoop,
     });
+
+    const planLabel = (ref: PlanRef) => ref.name + (overview.nameSuffixes.get(planId(ref)) ?? '');
+    const loadedRefs = () => refs.filter(r => cache.has(planId(r)));
+
+    /** Every resource change from the plans loaded so far, in plan order. */
+    const currentRows = (): ResourceRow[] => buildResourceRows(
+        loadedRefs().map(r => ({
+            id: planId(r),
+            label: planLabel(r),
+            resources: cache.get(planId(r))!.resource_changes ?? [],
+        })),
+    );
+
+    const openPlan = (id: string) => {
+        const ref = refs.find(r => planId(r) === id);
+        if (ref) void switchTo({ kind: 'plan', ref });
+    };
+
+    // Background fetches finish at arbitrary times. Rebuilding the list while
+    // the user is mid-click (between pointerdown and pointerup) would swap the
+    // element under the pointer and drop the click, so defer until release.
+    let pointerHeld = false;
+    let patchQueued = false;
+    body.addEventListener('pointerdown', () => { pointerHeld = true; });
+    const releasePointer = () => {
+        if (!pointerHeld) return;
+        pointerHeld = false;
+        if (patchQueued) {
+            patchQueued = false;
+            // Let the click event (fired after pointerup) land first.
+            window.setTimeout(() => patchOverview(), 0);
+        }
+    };
+    document.addEventListener('pointerup', releasePointer, true);
+    document.addEventListener('pointercancel', releasePointer, true);
 
     const patchOverview = () => {
         if (current.kind !== 'all' || !overview.mounted) return;
-        const { summaryHost, metaHost, listHost, hiddenHost } = overview.mounted;
+        if (pointerHeld) {
+            patchQueued = true;
+            return;
+        }
+        const { metaHost, summaryHost, buttonsHost, listHost, outputsHost, noticeHost } = overview.mounted;
+        const active = document.activeElement as HTMLElement | null;
+        const focusKey = active && body.contains(active) ? active.dataset.focusKey : undefined;
+        // Plans finish loading in any order, so rows can appear above what the
+        // user is looking at. Remember the first visible row and keep it put.
+        const anchor = visibleRowAnchor(listHost);
+
+        const rows = currentRows();
+        const all = [...summaries.values()];
         clear(metaHost);
-        fillOverviewMeta(metaHost, refs.length, [...summaries.values()]);
+        fillOverviewMeta(metaHost, refs.length, all, rows);
         clear(summaryHost);
         summaryHost.appendChild(renderOverviewSummary(overview, patchOverview));
+        clear(buttonsHost);
+        buttonsHost.appendChild(renderOverviewButtons(overview, rows, patchOverview));
         clear(listHost);
-        listHost.appendChild(renderOverviewList(overview, id => {
-            const ref = refs.find(r => planId(r) === id);
-            if (ref) void switchTo({ kind: 'plan', ref });
-        }));
-        clear(hiddenHost);
-        const hidden = hiddenNoChangeCount([...summaries.values()], filterOf());
-        if (hidden > 0 && overview.onlyWithChanges) {
-            hiddenHost.appendChild(renderHiddenBanner(hidden, () => {
-                overview.onlyWithChanges = false;
-                const toggle = body.querySelector<HTMLInputElement>('.toggle-input');
-                if (toggle) toggle.checked = false;
-                patchOverview();
-            }));
+        listHost.appendChild(renderOverviewList(overview, rows, filterOf(), openPlan));
+        clear(outputsHost);
+        const outputs = renderCombinedOutputs(
+            loadedRefs().map(r => ({
+                id: planId(r),
+                label: planLabel(r),
+                outputs: cache.get(planId(r))!.output_changes ?? {},
+            })),
+            openPlan,
+        );
+        if (outputs) outputsHost.appendChild(outputs);
+        clear(noticeHost);
+        const failed = all.filter(x => x.status === 'error');
+        if (failed.length) noticeHost.appendChild(renderFailedPlans(failed, overview.nameSuffixes));
+
+        if (anchor) restoreRowAnchor(listHost, anchor);
+        if (focusKey) {
+            const target = [...body.querySelectorAll<HTMLElement>('[data-focus-key]')]
+                .find(n => n.dataset.focusKey === focusKey);
+            if (target && target !== document.activeElement) target.focus({ preventScroll: true });
         }
     };
 
@@ -667,18 +797,21 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         clear(body);
         const metaHost = el('div', { class: 'header-meta' });
         const summaryHost = el('div');
-        const listHost = el('div');
-        const hiddenHost = el('div');
-        overview.mounted = { summaryHost, metaHost, listHost, hiddenHost };
+        const buttonsHost = el('div', { class: 'control-buttons' });
+        const listHost = el('div', { class: 'tree' });
+        const outputsHost = el('div');
+        const noticeHost = el('div');
+        overview.mounted = { metaHost, summaryHost, buttonsHost, listHost, outputsHost, noticeHost };
 
         body.appendChild(el('header', { class: 'header' }, [
             el('h1', { text: 'All plans' }),
             metaHost,
         ]));
         body.appendChild(summaryHost);
-        body.appendChild(renderOverviewControls(overview, patchOverview));
+        body.appendChild(renderOverviewControls(overview, buttonsHost, patchOverview));
+        body.appendChild(noticeHost);
         body.appendChild(listHost);
-        body.appendChild(hiddenHost);
+        body.appendChild(outputsHost);
         patchOverview();
         void loadAllForOverview();
     };
@@ -690,6 +823,10 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
         let cursor = 0;
         const worker = async () => {
             while (cursor < pending.length) {
+                // Yield to a plan the user explicitly opened: don't start new
+                // background downloads until it has finished loading.
+                while (userFetch) await userFetch;
+                if (cursor >= pending.length) break;
                 const ref = pending[cursor++];
                 try {
                     await fetchOne(ref);
@@ -706,6 +843,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
     const switchTo = async (view: View) => {
         current = view;
+        syncSelector(); // the plan being opened must be listed, even if hidden
         if (select) select.value = view.kind === 'all' ? ALL_PLANS_VALUE : planId(view.ref);
 
         if (view.kind === 'all') {
@@ -723,8 +861,12 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
 
         if (select) select.disabled = true;
         showLoadingStage(body, `Loading plan: ${ref.name}…`, { skeleton: true });
+        const request = fetchOne(ref);
+        const gate: Promise<void> = request.then(() => undefined, () => undefined)
+            .finally(() => { if (userFetch === gate) userFetch = null; });
+        userFetch = gate;
         try {
-            const plan = await fetchOne(ref);
+            const plan = await request;
             if (current.kind === 'plan' && current.ref === ref) renderPlan(plan, body);
         } catch (err: any) {
             summaries.set(id, errorSummary(ref.name, err?.message ?? String(err), id));
@@ -738,7 +880,7 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
     };
 
     if (refs.length > 1) {
-        select = renderSelector(refs, defaultSelectorValue(refs), value => {
+        const selector = renderSelector(refs, defaultSelectorValue(refs), value => {
             if (value === ALL_PLANS_VALUE) {
                 void switchTo({ kind: 'all' });
                 return;
@@ -746,16 +888,40 @@ export async function renderPlans(inputRefs: PlanRef[], fetcher: PlanFetcher, ro
             const next = refs.find(r => planId(r) === value);
             if (next) void switchTo({ kind: 'plan', ref: next });
         });
+        select = selector.select;
+        selectorOptions = selector.options;
         selectorBar.appendChild(el('label', { class: 'plan-selector', attrs: { for: 'plan-select' } }, [
             el('span', { class: 'plan-selector-label', text: 'Plan' }),
             select,
         ]));
+
+        hideToggle = el('input', {
+            attrs: { type: 'checkbox', id: 'hide-no-change-plans', 'data-focus-key': 'hide-no-change' },
+        });
+        hiddenCountLabel = el('span', { class: 'selector-toggle-count', attrs: { 'aria-live': 'polite' } });
+        hideToggle.addEventListener('change', () => {
+            hideTouched = true;
+            hideChoice = hideToggle!.checked;
+            syncSelector();
+        });
+        hideToggleLabel = el('label', { class: 'selector-toggle', attrs: { for: 'hide-no-change-plans' } }, [
+            hideToggle,
+            el('span', { text: 'Hide plans without changes' }),
+            hiddenCountLabel,
+        ]);
+        hideToggleLabel.hidden = true;
+        selectorBar.appendChild(hideToggleLabel);
+        syncSelector();
     }
 
     await switchTo(current);
 }
 
-function renderSelector(refs: PlanRef[], currentValue: string, onChange: (value: string) => void): HTMLSelectElement {
+function renderSelector(
+    refs: PlanRef[],
+    currentValue: string,
+    onChange: (value: string) => void,
+): { select: HTMLSelectElement; options: Map<string, HTMLOptionElement> } {
     const select = el('select', {
         class: 'plan-selector-input',
         attrs: { id: 'plan-select', 'aria-label': 'Select Terraform plan' },
@@ -768,80 +934,60 @@ function renderSelector(refs: PlanRef[], currentValue: string, onChange: (value:
     if (currentValue === ALL_PLANS_VALUE) all.selected = true;
     select.appendChild(all);
 
-    const nameCounts = new Map<string, number>();
-    for (const ref of refs) nameCounts.set(ref.name, (nameCounts.get(ref.name) ?? 0) + 1);
-
+    const suffixes = duplicateNameSuffixes(refs);
+    const options = new Map<string, HTMLOptionElement>();
     for (const ref of refs) {
         const id = planId(ref);
-        const dup = (nameCounts.get(ref.name) ?? 0) > 1;
-        const text = dup && ref.recordId
-            ? `${ref.name} (${ref.recordId.slice(0, 8)})`
-            : ref.name;
+        const text = ref.name + (suffixes.get(id) ?? '');
         const opt = el('option', { text, attrs: { value: id } });
         if (id === currentValue) opt.selected = true;
         select.appendChild(opt);
+        options.set(id, opt);
     }
 
     select.addEventListener('change', () => onChange(select.value));
-    return select;
+    return { select, options };
 }
 
-function fillOverviewMeta(host: HTMLElement, total: number, summaries: PlanSummary[]) {
+function fillOverviewMeta(host: HTMLElement, total: number, summaries: PlanSummary[], rows: ResourceRow[]) {
     const loaded = summaries.filter(s => s.status === 'loaded');
     const withChanges = loaded.filter(s => s.hasChanges).length;
     const noChanges = loaded.filter(s => s.hasChanges === false).length;
     const pending = summaries.filter(s => s.status === 'pending').length;
     const failed = summaries.filter(s => s.status === 'error').length;
+    const changes = rows.filter(r => r.kind !== 'noop' && r.kind !== 'read').length;
 
-    host.appendChild(el('span', {
-        class: 'meta-pill',
-        text: `${total} ${total === 1 ? 'plan' : 'plans'}`,
-    }));
-    host.appendChild(el('span', {
-        class: 'meta-pill',
-        text: `${withChanges} with changes`,
-    }));
-    host.appendChild(el('span', {
-        class: 'meta-pill',
-        text: `${noChanges} no changes`,
-    }));
+    const pill = (text: string, extra = '') =>
+        host.appendChild(el('span', { class: `meta-pill${extra}`, text }));
+
+    pill(`${total} ${total === 1 ? 'plan' : 'plans'}`);
+    pill(`${withChanges} with changes`);
+    pill(`${noChanges} no changes`);
+    pill(`${changes} resource ${changes === 1 ? 'change' : 'changes'}`);
     const versions = uniqueTerraformVersions(summaries);
-    if (versions.length === 1) {
-        host.appendChild(el('span', { class: 'meta-pill', text: `Terraform ${versions[0]}` }));
-    } else if (versions.length > 1) {
-        host.appendChild(el('span', { class: 'meta-pill', text: 'Mixed Terraform versions' }));
-    }
-    if (pending > 0) {
-        host.appendChild(el('span', {
-            class: 'meta-pill',
-            text: `Loading ${loaded.length + failed}/${total}…`,
-        }));
-    }
-    if (failed > 0) {
-        host.appendChild(el('span', {
-            class: 'meta-pill meta-pill-error',
-            text: `${failed} failed to load`,
-        }));
-    }
+    if (versions.length === 1) pill(`Terraform ${versions[0]}`);
+    else if (versions.length > 1) pill('Mixed Terraform versions');
+    if (pending > 0) pill(`Loading ${loaded.length + failed}/${total}…`);
+    if (failed > 0) pill(`${failed} failed to load`, ' meta-pill-error');
 }
 
 function renderOverviewSummary(session: OverviewSession, onChange: () => void): HTMLElement {
     let counts = emptyCounts();
     for (const s of session.summaries.values()) counts = addCounts(counts, s.counts);
     return renderActionCards(counts, session.activeFilters, kind => {
-        if (session.activeFilters.has(kind)) session.activeFilters.delete(kind);
-        else session.activeFilters.add(kind);
+        toggleInSet(session.activeFilters, kind);
         onChange();
     });
 }
 
-function renderOverviewControls(session: OverviewSession, onChange: () => void): HTMLElement {
+/** Search box (persistent, so typing is never interrupted) plus a host for the buttons. */
+function renderOverviewControls(session: OverviewSession, buttonsHost: HTMLElement, onChange: () => void): HTMLElement {
     const search = el('input', {
         class: 'search',
         attrs: {
             type: 'search',
-            placeholder: 'Filter plans, resource addresses or types…',
-            'aria-label': 'Filter plans',
+            placeholder: 'Filter by address, type or plan…',
+            'aria-label': 'Filter resources',
             value: session.searchTerm,
         },
     }) as HTMLInputElement;
@@ -855,147 +1001,173 @@ function renderOverviewControls(session: OverviewSession, onChange: () => void):
         }, 80);
     });
 
-    const toggle = el('label', { class: 'toggle' }, [
-        el('input', {
-            class: 'toggle-input',
-            attrs: {
-                type: 'checkbox',
-                'aria-label': 'Only plans with changes',
-                ...(session.onlyWithChanges ? { checked: '' } : {}),
-            },
-        }),
-        el('span', { class: 'toggle-track', attrs: { 'aria-hidden': 'true' } }),
-        el('span', { text: 'Only plans with changes' }),
-    ]);
-    const checkbox = toggle.querySelector('.toggle-input') as HTMLInputElement;
-    checkbox.addEventListener('change', () => {
-        session.onlyWithChanges = checkbox.checked;
+    return el('section', { class: 'controls' }, [search, buttonsHost]);
+}
+
+/** Expand / collapse and the unchanged-resources toggle. Re-rendered as plans load. */
+function renderOverviewButtons(session: OverviewSession, rows: ResourceRow[], onChange: () => void): DocumentFragment {
+    const frag = document.createDocumentFragment();
+    const setAllOpen = (open: boolean) => {
+        const filter: OverviewFilter = {
+            search: session.searchTerm,
+            actionFilters: session.activeFilters,
+            showNoop: session.showNoop,
+        };
+        for (const r of rows) {
+            if (!rowMatches(r, filter)) continue;
+            if (open) session.openKeys.add(r.key);
+            else session.openKeys.delete(r.key);
+        }
         onChange();
-    });
-
-    const setAllGroupsOpen = (open: boolean) => {
-        session.mounted?.listHost.querySelectorAll<HTMLDetailsElement>('details.plan-group').forEach(d => {
-            d.open = open;
-            const key = d.dataset.groupKey;
-            if (key) session.groupOpen.set(key, open);
-        });
     };
-    const expandAll = el('button', { class: 'control-btn', text: 'Expand all', attrs: { type: 'button' } });
-    expandAll.addEventListener('click', () => setAllGroupsOpen(true));
-    const collapseAll = el('button', { class: 'control-btn', text: 'Collapse all', attrs: { type: 'button' } });
-    collapseAll.addEventListener('click', () => setAllGroupsOpen(false));
 
-    return el('section', { class: 'controls' }, [
-        search,
-        toggle,
-        el('div', { class: 'control-buttons' }, [expandAll, collapseAll]),
-    ]);
+    const expandAll = el('button', {
+        class: 'control-btn', text: 'Expand all',
+        attrs: { type: 'button', 'data-focus-key': 'btn:expand' },
+    });
+    expandAll.addEventListener('click', () => setAllOpen(true));
+    const collapseAll = el('button', {
+        class: 'control-btn', text: 'Collapse all',
+        attrs: { type: 'button', 'data-focus-key': 'btn:collapse' },
+    });
+    collapseAll.addEventListener('click', () => setAllOpen(false));
+    frag.appendChild(expandAll);
+    frag.appendChild(collapseAll);
+
+    const noopCount = noopRowCount(rows);
+    if (noopCount > 0) {
+        const noun = noopCount === 1 ? 'unchanged resource' : 'unchanged resources';
+        const noopToggle = el('button', {
+            class: 'control-btn' + (session.showNoop ? ' is-active' : ''),
+            text: `${session.showNoop ? 'Hide' : 'Show'} ${noopCount} ${noun}`,
+            attrs: {
+                type: 'button',
+                'aria-pressed': session.showNoop ? 'true' : 'false',
+                'data-focus-key': 'btn:noop',
+            },
+        });
+        noopToggle.addEventListener('click', () => {
+            session.showNoop = !session.showNoop;
+            onChange();
+        });
+        frag.appendChild(noopToggle);
+    }
+    return frag;
+}
+
+function renderPlanTag(label: string, focusKey: string, onOpen: () => void): HTMLElement {
+    const tag = el('button', {
+        class: 'plan-tag',
+        text: label,
+        attrs: {
+            type: 'button',
+            title: `Open plan ${label}`,
+            'aria-label': `Open plan ${label}`,
+            'data-focus-key': focusKey,
+        },
+    });
+    tag.addEventListener('click', e => {
+        // The tag sits inside a <summary>; don't also toggle the row.
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen();
+    });
+    return tag;
 }
 
 function renderOverviewList(
     session: OverviewSession,
-    onOpen: (id: string) => void,
+    rows: ResourceRow[],
+    filter: OverviewFilter,
+    onOpenPlan: (id: string) => void,
 ): HTMLElement {
-    const filter: OverviewFilter = {
-        search: session.searchTerm,
-        onlyWithChanges: session.onlyWithChanges,
-        actionFilters: session.activeFilters,
-    };
-    const groups = visibleGroups(session.groups, session.summaries, filter);
-    const list = el('div', { class: 'overview-list' });
+    const visible = rows.filter(r => rowMatches(r, filter));
+    const list = el('div', { class: 'module-root overview-list' });
 
-    if (groups.length === 0) {
+    if (visible.length === 0) {
         const pending = [...session.summaries.values()].some(s => s.status === 'pending');
-        list.appendChild(el('div', {
-            class: 'empty',
-            text: pending
-                ? 'Loading plans…'
-                : 'No plans match the current filter.',
-        }));
+        const anyChanges = rows.some(r => r.kind !== 'noop');
+        let text: string;
+        if (pending && rows.length === 0) text = 'Loading plans…';
+        else if (!anyChanges && !filter.search && filter.actionFilters.size === 0) {
+            text = pending
+                ? 'No resource changes in the plans loaded so far…'
+                : 'No resource changes in any plan. Infrastructure matches the configuration.';
+        } else text = 'No resources match the current filter.';
+        list.appendChild(el('div', { class: 'empty', text }));
         return list;
     }
 
-    for (const group of groups) {
-        const flatten = !group.key
-            || (group.items.length === 1 && group.items[0].label === group.items[0].name);
-        if (flatten) {
-            for (const item of group.items) {
-                const summary = session.summaries.get(item.id);
-                if (summary) list.appendChild(renderPlanRow(summary, item.name, () => onOpen(item.id)));
-            }
-            continue;
-        }
-
-        let counts = emptyCounts();
-        for (const item of group.items) {
-            const s = session.summaries.get(item.id);
-            if (s) counts = addCounts(counts, s.counts);
-        }
-        const summaryEl = el('summary', { class: 'module-summary' }, [
-            el('span', { class: 'module-label', text: group.key }),
-            renderCountPills(counts),
-        ]);
-        const details = el('details', { class: 'module-node plan-group' });
-        details.dataset.groupKey = group.key;
-        details.open = session.groupOpen.get(group.key) ?? true;
+    for (const row of visible) {
+        const details = renderResource(row.resource) as HTMLDetailsElement;
+        details.dataset.rowKey = row.key;
+        const summary = details.querySelector('summary')!;
+        summary.dataset.focusKey = `res:${row.key}`;
+        summary.appendChild(renderPlanTag(row.planLabel, `tag:${row.key}`, () => onOpenPlan(row.planId)));
+        details.open = session.openKeys.has(row.key);
         details.addEventListener('toggle', () => {
-            session.groupOpen.set(group.key, details.open);
+            if (details.open) session.openKeys.add(row.key);
+            else session.openKeys.delete(row.key);
         });
-        details.appendChild(summaryEl);
-        const body = el('div', { class: 'module-body' });
-        for (const item of group.items) {
-            const summary = session.summaries.get(item.id);
-            if (summary) body.appendChild(renderPlanRow(summary, item.label, () => onOpen(item.id)));
-        }
-        details.appendChild(body);
         list.appendChild(details);
     }
-
     return list;
 }
 
-function renderPlanRow(summary: PlanSummary, label: string, onOpen: () => void): HTMLElement {
-    const kind = summary.status === 'loaded' ? dominantAction(summary.counts) : null;
-    const kindClass = kind ? ` plan-row-${kind}` : summary.status === 'error' ? ' plan-row-error' : ' plan-row-pending';
-    const row = el('button', {
-        class: `plan-row${kindClass}`,
-        attrs: {
-            type: 'button',
-            'data-plan-name': summary.name,
-            'data-plan-id': summary.id,
-            'aria-label': planAriaLabel(summary, label),
-        },
-    }, [
-        el('code', { class: 'plan-row-name', text: label }),
-    ]);
-
-    if (summary.status === 'pending') {
-        row.appendChild(el('span', { class: 'plan-row-status', text: 'Loading…' }));
-    } else if (summary.status === 'error') {
-        row.appendChild(el('span', {
-            class: 'plan-row-status plan-row-status-error',
-            text: summary.error || 'Failed to load',
-        }));
-    } else {
-        row.appendChild(renderCountPills(summary.counts));
+/** Output changes across all loaded plans, tagged like resources. Null when none change. */
+function renderCombinedOutputs(
+    plans: Array<{ id: string; label: string; outputs: Record<string, OutputChange> }>,
+    onOpenPlan: (id: string) => void,
+): HTMLElement | null {
+    const list = el('div', { class: 'outputs-list' });
+    let n = 0;
+    for (const p of plans) {
+        for (const name of Object.keys(p.outputs).sort((a, b) => a.localeCompare(b))) {
+            const o = p.outputs[name];
+            const kind = classifyAction(o.actions);
+            if (kind === 'noop') continue;
+            const valueText = o.after_sensitive ? '(sensitive)'
+                : o.after_unknown ? '(known after apply)'
+                : formatValue(o.after);
+            list.appendChild(el('div', { class: 'output-row' }, [
+                el('span', { class: `action-badge action-${kind}`, text: ACTION_LABEL[kind] }),
+                el('code', { class: 'output-name', text: name }),
+                el('span', { class: 'output-value', text: valueText }),
+                renderPlanTag(p.label, `out:${p.id}\n${name}`, () => onOpenPlan(p.id)),
+            ]));
+            n++;
+        }
     }
-
-    row.addEventListener('click', onOpen);
-    return row;
+    if (n === 0) return null;
+    return el('section', { class: 'outputs' }, [el('h2', { text: 'Outputs' }), list]);
 }
 
-function renderHiddenBanner(count: number, onShowAll: () => void): HTMLElement {
-    const noun = count === 1 ? 'plan' : 'plans';
-    const btn = el('button', {
-        class: 'hidden-plans-action',
-        text: 'Show all',
-        attrs: { type: 'button' },
-    });
-    btn.addEventListener('click', onShowAll);
-    return el('div', { class: 'hidden-plans' }, [
-        el('span', { text: `${count} ${noun} with no changes ${count === 1 ? 'is' : 'are'} hidden` }),
-        btn,
+function renderFailedPlans(failed: PlanSummary[], suffixes: Map<string, string>): HTMLElement {
+    return el('div', { class: 'overview-notice' }, [
+        el('strong', { text: `${failed.length} ${failed.length === 1 ? 'plan' : 'plans'} could not be loaded` }),
+        el('ul', {}, failed.map(f => el('li', {}, [
+            el('code', { text: f.name + (suffixes.get(f.id) ?? '') }),
+            el('span', { text: `: ${f.error || 'Failed to load'}` }),
+        ]))),
     ]);
+}
+
+interface RowAnchor { key: string; top: number }
+
+function visibleRowAnchor(listHost: HTMLElement): RowAnchor | null {
+    for (const row of listHost.querySelectorAll<HTMLElement>('[data-row-key]')) {
+        const top = row.getBoundingClientRect().top;
+        if (top >= 0) return { key: row.dataset.rowKey!, top };
+    }
+    return null;
+}
+
+function restoreRowAnchor(listHost: HTMLElement, anchor: RowAnchor) {
+    const row = [...listHost.querySelectorAll<HTMLElement>('[data-row-key]')]
+        .find(r => r.dataset.rowKey === anchor.key);
+    if (!row) return;
+    const delta = row.getBoundingClientRect().top - anchor.top;
+    if (delta !== 0) window.scrollBy(0, delta);
 }
 
 function showStatusInto(node: HTMLElement, title: string, message: string, kind: 'loading' | 'error' | 'empty') {

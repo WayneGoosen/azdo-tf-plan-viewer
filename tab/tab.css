@@ -46,11 +46,18 @@
            attachment. Container exists in the DOM either way; bar stays empty
            in the single-plan case so the body's vertical position is stable. */
         .plan-selector-bar:empty { display: none; }
+        .plan-selector-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 16px;
+            margin-bottom: 12px;
+        }
         .plan-selector {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 12px;
+            max-width: 100%;
             padding: 6px 10px;
             background: var(--plan-bg-elev);
             border: 1px solid var(--plan-border);
@@ -76,6 +83,17 @@
             outline: none;
             border-color: var(--plan-accent);
         }
+        .selector-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .selector-toggle[hidden] { display: none; }
+        .selector-toggle input { margin: 0; accent-color: var(--plan-accent); cursor: pointer; }
+        .selector-toggle-count { color: var(--plan-text-muted); }
         .plan-selector-input:disabled {
             opacity: 0.6;
             cursor: progress;
@@ -155,7 +173,8 @@
             margin-bottom: 12px;
         }
         .search {
-            flex: 1;
+            /* Takes its own line on narrow screens instead of squeezing the buttons. */
+            flex: 1 1 240px;
             min-width: 0;
             padding: 6px 10px;
             font: inherit;
@@ -168,9 +187,10 @@
             outline: none;
             border-color: var(--plan-accent);
         }
-        .control-buttons { display: flex; gap: 4px; }
+        .control-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
         .control-btn {
             font: inherit;
+            white-space: nowrap;
             padding: 5px 10px;
             background: var(--plan-bg);
             color: var(--plan-text);
@@ -181,124 +201,42 @@
         .control-btn:hover { background: var(--plan-bg-elev); }
         .control-btn.is-active { background: var(--plan-bg-elev); box-shadow: inset 0 0 0 1px var(--plan-accent); }
 
-        /* Compact on/off control used by "Only plans with changes". Colours
-           stay on the ADO accent token so it tracks light/dark/high-contrast. */
-        .toggle {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 5px 10px;
-            border: 1px solid var(--plan-border);
-            border-radius: 3px;
-            cursor: pointer;
-            user-select: none;
-            white-space: nowrap;
-            font-size: 13px;
-        }
-        .toggle:hover { background: var(--plan-bg-elev); }
-        .toggle-input {
-            position: absolute;
-            opacity: 0;
-            width: 1px;
-            height: 1px;
-            pointer-events: none;
-        }
-        .toggle-track {
-            position: relative;
-            width: 28px;
-            height: 16px;
-            border-radius: 8px;
-            background: var(--plan-border);
-            flex-shrink: 0;
-        }
-        .toggle-track::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--plan-bg);
-            box-shadow: 0 0 0 1px var(--plan-border-soft);
-            transition: transform 0.12s ease;
-        }
-        .toggle-input:checked + .toggle-track { background: var(--plan-accent); }
-        .toggle-input:checked + .toggle-track::after { transform: translateX(12px); }
-        .toggle-input:focus-visible + .toggle-track {
-            outline: 2px solid var(--plan-accent);
-            outline-offset: 2px;
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .toggle-track::after { transition: none; }
-        }
-
         /* ---- all-plans overview ---- */
-        .overview-list { display: flex; flex-direction: column; gap: 6px; }
-        .plan-group { margin-bottom: 0; }
-        .plan-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            width: 100%;
-            margin: 4px 0;
-            padding: 7px 10px;
-            border: 1px solid var(--plan-border-soft);
+        /* Which plan a resource or output came from. A button: opens that plan. */
+        .plan-tag {
+            margin-left: auto;
+            flex-shrink: 0;
+            /* Wraps to its own line when there's no room beside the address;
+               only truncates if the plan name alone is wider than the row. */
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 1px 8px;
+            border: 1px solid var(--plan-border);
+            border-radius: 10px;
+            background: var(--plan-bg-elev);
+            color: var(--plan-text-muted);
+            font-family: var(--plan-font-mono);
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .plan-tag:hover { color: var(--plan-text); border-color: var(--plan-accent); }
+        .plan-tag:focus-visible { outline: 2px solid var(--plan-accent); outline-offset: 1px; }
+        .output-row .plan-tag { margin-left: 12px; }
+        /* In the combined list the plan tag takes the right edge, so the type sits by the address. */
+        .overview-list .resource-type { margin-left: 0; }
+
+        .overview-notice {
+            margin: 0 0 12px;
+            padding: 9px 12px;
+            border: 1px solid var(--plan-delete);
             border-left-width: 3px;
             border-radius: 3px;
-            background: var(--plan-bg);
-            color: inherit;
-            font: inherit;
-            text-align: left;
-            cursor: pointer;
-        }
-        .plan-row:hover { background: var(--plan-bg-elev); }
-        .plan-row:focus-visible {
-            outline: 2px solid var(--plan-accent);
-            outline-offset: 1px;
-        }
-        .plan-row-create   { border-left-color: var(--plan-create); }
-        .plan-row-update   { border-left-color: var(--plan-update); }
-        .plan-row-recreate { border-left-color: var(--plan-recreate); }
-        .plan-row-delete   { border-left-color: var(--plan-delete); }
-        .plan-row-pending  { border-left-color: var(--plan-border); }
-        .plan-row-error    { border-left-color: var(--plan-delete); }
-        .plan-row-name {
-            font-family: var(--plan-font-mono);
-            font-size: 12px;
-            color: var(--plan-text);
-        }
-        .plan-row .count-pills { margin-left: auto; }
-        .plan-row-status {
-            margin-left: auto;
-            font-size: 11px;
-            color: var(--plan-text-muted);
-            font-style: italic;
-        }
-        .plan-row-status-error { color: var(--plan-delete); font-style: normal; }
-
-        .hidden-plans {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            margin-top: 10px;
-            padding: 9px 12px;
-            border: 1px dashed var(--plan-border);
-            border-radius: 3px;
-            color: var(--plan-text-muted);
             font-size: 13px;
         }
-        .hidden-plans-action {
-            background: none;
-            border: none;
-            padding: 0;
-            color: var(--plan-accent);
-            cursor: pointer;
-            font: inherit;
-        }
-        .hidden-plans-action:hover { text-decoration: underline; }
+        .overview-notice ul { margin: 6px 0 0; padding-left: 18px; }
+        .overview-notice code { font-family: var(--plan-font-mono); font-size: 12px; }
 
         /* ---- tree ---- */
         .module-node {
@@ -358,8 +296,9 @@
 
         .resource-summary {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 8px;
+            gap: 4px 8px;
             padding: 6px 10px;
             cursor: pointer;
             user-select: none;
@@ -378,11 +317,16 @@
             font-family: var(--plan-font-mono);
             font-size: 12px;
             color: var(--plan-text);
+            /* Long module paths break instead of pushing the row wider than the page. */
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
         .resource-type {
             font-size: 11px;
             color: var(--plan-text-muted);
             margin-left: auto;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .action-badge {
@@ -531,14 +475,15 @@
         }
         .output-row {
             display: flex;
-            gap: 8px;
+            flex-wrap: wrap;
+            gap: 4px 8px;
             align-items: center;
             padding: 6px 10px;
             border-bottom: 1px solid var(--plan-border-soft);
         }
         .output-row:last-child { border-bottom: none; }
-        .output-name { font-family: var(--plan-font-mono); font-size: 12px; }
-        .output-value { font-family: var(--plan-font-mono); font-size: 12px; color: var(--plan-text-muted); margin-left: auto; }
+        .output-name { font-family: var(--plan-font-mono); font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+        .output-value { font-family: var(--plan-font-mono); font-size: 12px; color: var(--plan-text-muted); margin-left: auto; min-width: 0; overflow-wrap: anywhere; }
 
         /* ---- loading stage + skeleton ---- */
         /* Caption that announces the current load phase (Connecting / Listing /

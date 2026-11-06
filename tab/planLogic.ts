@@ -113,14 +113,16 @@ export function buildTree(resources: ResourceChange[]): ModuleNode {
 }
 
 function rollUpCounts(node: ModuleNode): Record<ActionKind, number> {
-    const counts = emptyCounts();
-    for (const r of node.resources) counts[classifyAction(r.change.actions)]++;
-    for (const child of node.children.values()) {
-        const c = rollUpCounts(child);
-        (Object.keys(counts) as ActionKind[]).forEach(k => { counts[k] += c[k]; });
-    }
+    let counts = countResourceChanges(node.resources);
+    for (const child of node.children.values()) counts = addCounts(counts, rollUpCounts(child));
     node.counts = counts;
     return counts;
+}
+
+/** Toggle membership of `item` in `set` (add if missing, remove if present). */
+export function toggleInSet<T>(set: Set<T>, item: T): void {
+    if (set.has(item)) set.delete(item);
+    else set.add(item);
 }
 
 // ---------------------------------- Diff ------------------------------------

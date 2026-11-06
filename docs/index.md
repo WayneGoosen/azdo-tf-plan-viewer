@@ -42,9 +42,11 @@ not text — so the tab can do everything a code reviewer needs.
   addresses and types.
 - **All-plans overview.** When a build attaches two or more plans, the tab
   opens on a combined view — cumulative Create / Update / Recreate / Delete
-  counts, a grouped list of every plan, and a toggle to show only plans that
-  have changes. Click a row (or pick it in the dropdown) for the existing
-  per-plan detail. A single attachment still looks exactly as it does today.
+  counts and every resource change from every plan on one page, each tagged
+  with the plan it came from. Click a plan tag (or pick it in the dropdown)
+  for the existing per-plan detail. Plans without changes can be left out of
+  the dropdown with a checkbox, or by default via the `hideNoChangePlans`
+  task input. A single attachment still looks exactly as it does today.
 
 ![All plans overview](assets/images/04-all-plans-overview.png)
 - **Outputs section.** Output changes are rendered separately so downstream

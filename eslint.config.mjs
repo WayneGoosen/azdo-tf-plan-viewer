@@ -14,6 +14,10 @@ export default tseslint.config(
             'webpack.config.js',
             'vitest.config.ts',
             'eslint.config.js',
+            'site/',
+            'design/',
+            'test-results/',
+            'playwright-report/',
         ],
     },
     {
@@ -26,6 +30,12 @@ export default tseslint.config(
                 setTimeout: 'readonly',
                 URLSearchParams: 'readonly',
             },
+        },
+    },
+    {
+        files: ['e2e/serve.mjs'],
+        languageOptions: {
+            globals: { process: 'readonly', URL: 'readonly' },
         },
     },
     {

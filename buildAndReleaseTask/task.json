@@ -49,7 +49,15 @@
       "label": "Redact sensitive values",
       "defaultValue": "true",
       "required": false,
-      "helpMarkdown": "When true (the default), the attached plan JSON replaces every Terraform-marked sensitive leaf (`before_sensitive` / `after_sensitive`) with `(sensitive)` and keeps only the fields the Plan Review tab reads (`format_version`, `terraform_version`, `resource_changes`, `output_changes`). Set to false to attach the full unredacted plan — anyone with build read access can download attachment contents."
+      "helpMarkdown": "When true (the default), the attached plan JSON replaces every Terraform-marked sensitive leaf (`before_sensitive` / `after_sensitive`) with `(sensitive)` and keeps only the fields the Plan Review tab reads (`format_version`, `terraform_version`, `resource_changes`, `output_changes`, plus the tab's own display settings when any are set). Set to false to attach the full unredacted plan — anyone with build read access can download attachment contents."
+    },
+    {
+      "name": "hideNoChangePlans",
+      "type": "boolean",
+      "label": "Hide from the plan dropdown when there are no changes",
+      "defaultValue": "false",
+      "required": false,
+      "helpMarkdown": "When true, the Plan Review tab leaves this plan out of its plan dropdown if it has no resource or output changes. Useful when a Terragrunt loop publishes many plans and only a few change. Viewers can still show every plan with the **Hide plans without changes** checkbox in the tab. Off by default, so every plan stays listed."
     }
   ],
   "execution": {

@@ -1,0 +1,25 @@
+{
+    "format_version": "1.2",
+    "terraform_version": "1.7.4",
+    "resource_changes": [
+        {
+            "address": "azurerm_resource_group.main",
+            "mode": "managed",
+            "type": "azurerm_resource_group",
+            "name": "main",
+            "change": {
+                "actions": ["no-op"],
+                "before": { "name": "rg-app", "location": "westeurope" },
+                "after": { "name": "rg-app", "location": "westeurope" }
+            }
+        }
+    ],
+    "output_changes": {
+        "app_url": {
+            "actions": ["update"],
+            "before": "https://app-old.example.com",
+            "after": "https://app.example.com",
+            "after_unknown": false
+        }
+    }
+}

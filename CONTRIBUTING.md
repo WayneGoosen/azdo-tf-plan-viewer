@@ -63,8 +63,11 @@ npm run typecheck:tab   # Check tab code
 
 ```bash
 npm test           # Unit tests (Vitest)
+npm run test:e2e   # Browser tests (Playwright, against the dev harness)
 npm run lint       # ESLint
 ```
+
+Browser tests live in `e2e/` and run in Chromium against the dev harness with fixture plans (no Azure DevOps needed). Install the browser once with `npx playwright install chromium`. Use them for behaviour that a simulated DOM can't cover reliably, like focus and mouse interaction.
 
 Tests live alongside source files with a `.test.ts` suffix (`tab/tab.test.ts`, `buildAndReleaseTask/index.test.ts`, `buildAndReleaseTask/redact.test.ts`). Use `npm run test:watch` while iterating.
 
@@ -86,7 +89,12 @@ This command:
 3. Serves the content on **http://localhost:8080**
 4. Automatically opens `/dev.html` in your browser
 
-The dev harness loads sample Terraform plans from `dev-fixtures/` so you can iterate on the UI quickly.
+The dev harness loads sample Terraform plans from `dev-fixtures/` so you can iterate on the UI quickly. Query parameters switch scenarios:
+
+- `?single=1`: a single plan (no selector or overview)
+- `?hide=1`: simulate the task's `hideNoChangePlans` input on every plan
+- `?scenario=edge`: overview edge cases (two attachments with the same name, an output-only plan)
+- `?slow=N`: delay each fixture download by N ms to inspect loading states
 
 ## Testing in Azure DevOps
 
@@ -213,7 +221,7 @@ azdo-tf-plan-viewer/
 │   ├── tab.html
 │   ├── tab.ts               # Tab entry point
 │   ├── planLogic.ts         # Pure plan classification / diff / tree
-│   ├── overviewLogic.ts     # All-plans grouping / filter / selection
+│   ├── overviewLogic.ts     # All-plans summaries / resource rows / filters
 │   └── tab.test.ts          # Plan-logic unit tests
 ├── eslint.config.mjs        # ESLint flat config (4-space indent)
 ├── vitest.config.ts         # Vitest config

@@ -34,21 +34,21 @@
     "node": ">=24"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "1.65.0",
-    "@types/node": "^24.10.0",
-    "@vitest/ui": "^2.1.8",
+    "@types/node": "^26.6.6",
+    "@vitest/ui": "^5.1.0",
     "copyfiles": "^2.4.1",
-    "eslint": "^9.39.5",
+    "eslint": "^10.14.0",
     "happy-dom": "^21.0.1",
-    "rimraf": "^5.0.5",
-    "tfx-cli": "^0.23.1",
-    "ts-loader": "^9.5.7",
-    "typescript": "^5.3.3",
+    "rimraf": "^6.1.4",
+    "tfx-cli": "^0.24.2",
+    "ts-loader": "^9.6.2",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.17.0",
-    "vitest": "^2.1.8",
-    "webpack": "^5.106.2",
-    "webpack-cli": "^7.0.2"
+    "vitest": "^5.1.0",
+    "webpack": "^5.112.2",
+    "webpack-cli": "^7.3.1"
   },
   "dependencies": {
     "azure-devops-extension-api": "^4.270.0",

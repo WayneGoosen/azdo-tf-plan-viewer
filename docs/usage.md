@@ -79,8 +79,18 @@ Call the task once per stage with distinct `attachmentName` values:
     attachmentName: 'prod'
 ```
 
-Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically,
-the first is selected by default.
+Each `attachmentName` becomes a label in the dropdown. With two or more plans
+the tab opens on an **All plans** overview — combined Create / Update /
+Recreate / Delete counts and every resource change from every plan on one page,
+each tagged with the plan it came from. Search matches resource addresses,
+types and plan names. Click a plan tag, or pick it in the dropdown, to open the
+existing detail view. A single attachment still hides the selector.
+
+When many plans are published and only a few change, set
+[`hideNoChangePlans`](task-inputs.md#hidenochangeplans) on the task to keep
+plans without changes out of the dropdown. Viewers can toggle this with the
+**Hide plans without changes** checkbox beside the dropdown, which appears once
+a plan without changes has loaded.
 
 ## Agent runtime
 

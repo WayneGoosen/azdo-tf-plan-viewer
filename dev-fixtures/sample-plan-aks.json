@@ -1,0 +1,98 @@
+{
+    "format_version": "1.2",
+    "terraform_version": "1.7.4",
+    "resource_changes": [
+        {
+            "address": "azurerm_kubernetes_cluster.main",
+            "mode": "managed",
+            "type": "azurerm_kubernetes_cluster",
+            "name": "main",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "update"
+                ],
+                "before": {
+                    "name": "aks-prod-weu",
+                    "kubernetes_version": "1.29.4",
+                    "sku_tier": "Standard"
+                },
+                "after": {
+                    "name": "aks-prod-weu",
+                    "kubernetes_version": "1.30.2",
+                    "sku_tier": "Standard"
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_kubernetes_cluster_node_pool.user",
+            "mode": "managed",
+            "type": "azurerm_kubernetes_cluster_node_pool",
+            "name": "user",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "update"
+                ],
+                "before": {
+                    "name": "user",
+                    "node_count": 3,
+                    "vm_size": "Standard_D4s_v5"
+                },
+                "after": {
+                    "name": "user",
+                    "node_count": 5,
+                    "vm_size": "Standard_D4s_v5"
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_role_assignment.acr_pull",
+            "mode": "managed",
+            "type": "azurerm_role_assignment",
+            "name": "acr_pull",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "create"
+                ],
+                "before": null,
+                "after": {
+                    "role_definition_name": "AcrPull",
+                    "principal_type": "ServicePrincipal"
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        },
+        {
+            "address": "azurerm_log_analytics_workspace.aks",
+            "mode": "managed",
+            "type": "azurerm_log_analytics_workspace",
+            "name": "aks",
+            "provider_name": "registry.terraform.io/hashicorp/azurerm",
+            "change": {
+                "actions": [
+                    "no-op"
+                ],
+                "before": {
+                    "name": "log-aks-prod-weu"
+                },
+                "after": {
+                    "name": "log-aks-prod-weu"
+                },
+                "after_unknown": {},
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        }
+    ],
+    "output_changes": {}
+}

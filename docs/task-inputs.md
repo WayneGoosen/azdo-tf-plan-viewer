@@ -6,6 +6,7 @@
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 | `cliTool` | No | CLI used to convert binary plans: `auto`, `terraform`, or `tofu`. Ignored for JSON plans. | `auto` |
 | `redactSensitive` | No | Replace Terraform-marked sensitive leaves with `(sensitive)` and drop unused plan fields before attaching. | `true` |
+| `hideNoChangePlans` | No | Leave this plan out of the tab's plan dropdown when it has no changes. | `false` |
 
 ## `planPath`
 
@@ -21,8 +22,10 @@ Point this at the plan file your pipeline produced. Both forms are accepted:
 
 Only relevant when you publish more than one plan per build (see the
 [multi-stage example](usage.md#multi-stage-example)). Each distinct
-`attachmentName` becomes an entry in the tab's dropdown; alphabetical order
-decides which is selected first. With a single plan the selector is hidden.
+`attachmentName` becomes an entry in the tab's dropdown. With two or more
+plans the tab defaults to an **All plans** overview; pick a name to open that
+plan's detail. With a single plan the selector is hidden. To keep plans without
+changes out of the dropdown, see [`hideNoChangePlans`](#hidenochangeplans).
 
 ## `cliTool`
 
@@ -63,3 +66,32 @@ The attachment type stays `terraform-plan-viewer.plan`. Set `false` only if you 
     planPath: '$(System.DefaultWorkingDirectory)/tfplan'
     redactSensitive: false
 ```
+
+## `hideNoChangePlans`
+
+Off by default. Useful when one build publishes many plans (for example a
+Terragrunt loop) and only a few of them change. When set on the publishing
+step, the tab leaves plans with no resource or output changes out of its plan
+dropdown:
+
+```yaml
+- task: TerraformPlanViewer@1
+  inputs:
+    planPath: '$(System.DefaultWorkingDirectory)/tfplan'
+    attachmentName: '${{ deployment.name }}'
+    hideNoChangePlans: true
+```
+
+- The tab's **Hide plans without changes** checkbox, next to the dropdown,
+  appears once a plan without changes has loaded (it isn't shown when every
+  plan has changes). It starts checked when any published plan set this input. Viewers can untick it
+  to list every plan; their choice lasts for that visit.
+- A plan is only hidden once it has loaded and is known to have no changes.
+  Plans still loading, or that failed to load, stay listed.
+- The plan currently open always stays in the dropdown.
+- The **All plans** view is unaffected: plans without changes contribute no
+  resource rows there anyway.
+- The setting travels inside the attached plan JSON as a top-level
+  `terraform_plan_viewer` key. Anything else that reads the attachment can
+  ignore it.
+

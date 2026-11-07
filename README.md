@@ -7,7 +7,7 @@
 
 > Read your Terraform plans like code reviews, not CLI dumps.
 
-A native **Plan Review** tab for Azure DevOps build summaries. Renders `terraform plan` output as a structured, searchable diff — module tree, attribute-level before → after, replace reasons, multi-stage selector — instead of dumping it as text into the build log.
+A native **Plan Review** tab for Azure DevOps build summaries. Renders `terraform plan` output as a structured, searchable diff — module tree, attribute-level before → after, replace reasons, All-plans overview — instead of dumping it as text into the build log.
 
 ![Plan Review tab — overview](marketplace/images/01-hero-overview.png)
 
@@ -28,7 +28,9 @@ Neither is built for the moment that matters: a human deciding whether the chang
 - **Attribute-level diffs.** Expand any resource to see exactly which keys changed, **before → after**, with `+ – ~` markers. Sensitive values render as `(sensitive)`. Computed values render as `(known after apply)`.
 - **Replace reasons.** For `[delete, create]` resources, the tab surfaces the plan's `replace_paths` — answering *"why is this being recreated?"* with one line instead of guesswork.
 - **Click-to-filter summary.** Four cards at the top — Create / Update / Recreate / Delete — each clickable. Combine with a search box across resource addresses and types.
-- **Multi-stage selector.** Publish multiple plans per build (dev / staging / prod) and switch between them in a dropdown. The selector hides when only one plan is attached, so single-plan UX stays unchanged.
+- **All-plans overview.** When a build attaches two or more plans (Terragrunt loops, multi-stage, `##vso[task.addattachment]`), the tab opens on a combined view: cumulative Create / Update / Recreate / Delete counts and every resource change from every plan on one page, each tagged with the plan it came from. Expand a row for its diff, filter by action, address, type or plan name, and click a plan tag — or pick it in the dropdown — to open the existing per-plan detail. A single attachment still looks exactly as it does today.
+
+![All plans overview](marketplace/images/04-all-plans-overview.png)
 - **Outputs section.** Output changes are rendered separately so downstream consumers don't get blindsided by a removed `connection_string`.
 - **Native ADO theming.** Colours use ADO theme tokens — light, dark, and high-contrast modes all work without extra config. Monospace is Cascadia Mono (no programming ligatures), so literal attribute values like `!=` and `->` render as written.
 
@@ -110,7 +112,9 @@ Call the task once per stage with distinct `attachmentName` values:
     attachmentName: 'prod'
 ```
 
-Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, the first is selected by default.
+Each `attachmentName` becomes a label in the dropdown. With two or more plans the tab defaults to **All plans**; pick a name to open that plan's detail. Sorted alphabetically.
+
+Publishing many plans where only a few change (a Terragrunt loop, say)? Set `hideNoChangePlans: true` on the task to keep plans without changes out of the dropdown. Viewers can show them again with the **Hide plans without changes** checkbox beside the dropdown, which appears once a plan without changes has loaded and can also be ticked without the task input.
 
 ## Task inputs
 
@@ -120,6 +124,7 @@ Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, th
 | `attachmentName` | No | Identifier for the attachment; used as the label in the tab's plan selector. | `terraform-plan` |
 | `cliTool` | No | CLI used to convert binary plans: `auto` (terraform, then tofu), `terraform`, or `tofu`, looked up on the agent's `PATH`. Ignored for JSON plans. | `auto` |
 | `redactSensitive` | No | Replace Terraform-marked sensitive leaves with `(sensitive)` and drop unused plan fields before attaching. Set `false` to attach the full unredacted JSON. | `true` |
+| `hideNoChangePlans` | No | Leave this plan out of the tab's plan dropdown when it has no changes. Viewers can still show all plans with the tab's **Hide plans without changes** checkbox. | `false` |
 
 ## How it works
 
@@ -141,14 +146,15 @@ npm test           # run tests with vitest
 npm run lint       # run eslint
 ```
 
-The dev harness drives the production `renderPlans()` path with mock attachments backed by fixture files, so you can iterate on the tab without an ADO build. `?slow=15000` (query string) makes the loading state visible long enough to inspect; `?single=1` exercises the single-plan code path.
+The dev harness drives the production `renderPlans()` path with mock attachments backed by fixture files, so you can iterate on the tab without an ADO build. The default page is the All-plans overview. `?slow=15000` (query string) makes the loading state visible long enough to inspect; `?single=1` exercises the single-plan code path (no selector); `?scenario=edge` loads same-name attachments and an output-only plan; `?hide=1` simulates the `hideNoChangePlans` task input. Browser tests (`npm run test:e2e`, Playwright) run against the same harness.
 
 ### Testing
 
 The project uses [Vitest](https://vitest.dev/) for unit tests. Tests live alongside source files with a `.test.ts` suffix. Run `npm test` to execute all tests, or `npm run test:watch` for watch mode during development.
 
-Tests cover the pure business logic extracted into `tab/planLogic.ts`, `buildAndReleaseTask/validation.ts`, and `buildAndReleaseTask/redact.ts`:
+Tests cover the pure business logic extracted into `tab/planLogic.ts`, `tab/overviewLogic.ts`, `buildAndReleaseTask/validation.ts`, and `buildAndReleaseTask/redact.ts`:
 - Plan classification, diff computation, and module tree building
+- All-plans summaries, filtering, and default selection
 - Task input validation and binary plan detection
 - Sensitive-value redaction and unused-field slimming before attach
 - Sample plan fixtures

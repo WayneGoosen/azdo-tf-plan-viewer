@@ -15,6 +15,14 @@ export function validateAttachmentName(name: string): boolean {
     return VALID_NAME.test(name);
 }
 
+/**
+ * Opt-in boolean task inputs: only an explicit case-insensitive `true` turns
+ * the feature on. Missing, blank, typos, or unresolved variables stay off.
+ */
+export function parseOptInBoolean(raw: string | undefined): boolean {
+    return (raw ?? '').trim().toLowerCase() === 'true';
+}
+
 export function validateCliTool(cliTool: string): boolean {
     if (cliTool === 'auto') return true;
     return KNOWN_CLIS.includes(cliTool);

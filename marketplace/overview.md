@@ -41,9 +41,13 @@ Four cards at the top — **Create / Update / Recreate / Delete** — each with 
 
 ### Multi-stage pipelines, one tab
 
-Run the task once per stage (`dev`, `staging`, `prod`) with distinct names. The tab lists all attached plans in a dropdown — switching is instant once a plan is loaded, with a skeleton state and named caption (`Loading plan: prod…`) on first fetch.
+Run the task once per stage (`dev`, `staging`, `prod`) with distinct names — or attach many Terragrunt units via a loop / `##vso[task.addattachment]`. With two or more plans the tab opens on an **All plans** overview: combined Create / Update / Recreate / Delete counts and every resource change from every attachment on one page, each tagged with the plan it came from. Click a plan tag, or pick it in the dropdown, to open the existing detail view.
 
-The selector hides itself when only one plan is attached, so single-plan pipelines look exactly the same as before.
+Thirty plans and only two changed? Tick **Hide plans without changes** beside the dropdown to list just the ones that matter — or set `hideNoChangePlans: true` on the task to make that the default for your pipeline.
+
+Switching is instant once a plan is loaded, with a skeleton state and named caption (`Loading plan: prod…`) on first fetch. The selector hides itself when only one plan is attached, so single-plan pipelines look exactly the same as before.
+
+![All plans overview](https://raw.githubusercontent.com/WayneGoosen/azdo-tf-plan-viewer/main/marketplace/images/04-all-plans-overview.png)
 
 ### Outputs section
 
@@ -122,7 +126,7 @@ Before pinning the full version:
     attachmentName: 'prod'
 ```
 
-Each `attachmentName` becomes a label in the dropdown. Sorted alphabetically, the first is selected by default.
+Each `attachmentName` becomes a label in the dropdown. With two or more plans the tab defaults to **All plans**. Add `hideNoChangePlans: true` to leave plans without changes out of the dropdown.
 
 ---
 

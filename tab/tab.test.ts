@@ -7,6 +7,11 @@ import {
     classifyAction,
     computeDiff,
     buildTree,
+    countResourceChanges,
+    countsHaveChanges,
+    addCounts,
+    emptyCounts,
+    toggleInSet,
 } from './planLogic';
 
 interface TerraformPlan {
@@ -133,6 +138,41 @@ describe('computeDiff', () => {
             kind: '+',
             after: '(known after apply)',
         });
+    });
+});
+
+describe('countResourceChanges', () => {
+    it('sums actions and reports whether a plan has changes', () => {
+        const resources: ResourceChange[] = [
+            {
+                address: 'azurerm_resource_group.main',
+                type: 'azurerm_resource_group',
+                name: 'main',
+                change: { actions: ['create'], before: null, after: {} },
+            },
+            {
+                address: 'azurerm_storage_account.logs',
+                type: 'azurerm_storage_account',
+                name: 'logs',
+                change: { actions: ['update'], before: {}, after: {} },
+            },
+            {
+                address: 'azurerm_log_analytics_workspace.shared',
+                type: 'azurerm_log_analytics_workspace',
+                name: 'shared',
+                change: { actions: ['no-op'], before: {}, after: {} },
+            },
+        ];
+        const counts = countResourceChanges(resources);
+        expect(counts.create).toBe(1);
+        expect(counts.update).toBe(1);
+        expect(counts.noop).toBe(1);
+        expect(countsHaveChanges(counts)).toBe(true);
+        expect(countsHaveChanges(emptyCounts())).toBe(false);
+
+        const combined = addCounts(counts, countResourceChanges(resources));
+        expect(combined.create).toBe(2);
+        expect(combined.update).toBe(2);
     });
 });
 
@@ -278,5 +318,15 @@ describe('issue #6 regression: sensitive values should be shown', () => {
         const clientSecretDiff = diff.changed.find(d => d.key === 'client_secret');
         expect(clientSecretDiff).toBeDefined();
         expect(clientSecretDiff?.after).toBe('(sensitive)');
+    });
+});
+
+describe('toggleInSet', () => {
+    it('adds a missing item and removes a present one', () => {
+        const set = new Set<string>();
+        toggleInSet(set, 'delete');
+        expect([...set]).toEqual(['delete']);
+        toggleInSet(set, 'delete');
+        expect(set.size).toBe(0);
     });
 });

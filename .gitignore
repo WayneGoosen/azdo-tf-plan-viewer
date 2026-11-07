@@ -26,6 +26,10 @@ tasks/
 .env
 .env.local
 
+# Playwright test runner output
+test-results/
+playwright-report/
+
 # Playwright MCP session output (snapshots, console logs, dev screenshots)
 .playwright-mcp/
 
@@ -37,3 +41,9 @@ docs/assets/images/
 # Scratch screenshots dropped at the repo root during dev/testing.
 # Marketing-ready screenshots live under marketplace/images/ and are tracked.
 /*.png
+
+# Design prototypes and decision notes (e.g. issue #29 overview options) — local only
+design/
+
+# Promo video projects (HyperFrames sources and renders) — local only
+videos/

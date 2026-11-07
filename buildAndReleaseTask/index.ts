@@ -2,8 +2,9 @@ import * as tl from 'azure-pipelines-task-lib/task';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { looksLikeBinaryPlan, validateAttachmentName, validateCliTool, KNOWN_CLIS } from './validation';
+import { looksLikeBinaryPlan, parseOptInBoolean, validateAttachmentName, validateCliTool, KNOWN_CLIS } from './validation';
 import { preparePlanForUpload, shouldRedactSensitive } from './redact';
+import { withViewerSettings } from './viewerSettings';
 
 const ATTACHMENT_TYPE = 'terraform-plan-viewer.plan';
 
@@ -60,6 +61,7 @@ async function run() {
         const attachmentName = tl.getInput('attachmentName', false) || 'terraform-plan';
         const cliTool = (tl.getInput('cliTool', false) || 'auto').trim();
         const redactSensitive = shouldRedactSensitive(tl.getInput('redactSensitive', false));
+        const hideNoChangePlans = parseOptInBoolean(tl.getInput('hideNoChangePlans', false));
 
         if (!planPath) {
             tl.setResult(tl.TaskResult.Failed, 'planPath is required (path to a Terraform plan file, binary or JSON).');
@@ -98,9 +100,15 @@ async function run() {
         console.log(`Terraform version: ${parsed?.terraform_version ?? 'unknown'}`);
         console.log(`Resource changes: ${resourceCount}`);
 
+        // Display options for the tab ride along in the attachment. Only added
+        // when set, so a default run attaches exactly what it did before.
+        const settle = (plan: unknown) => hideNoChangePlans
+            ? withViewerSettings(plan, { hideNoChangePlans })
+            : plan;
+
         let uploadJson: string;
         if (redactSensitive) {
-            const prepared = preparePlanForUpload(parsed, true);
+            const prepared = settle(preparePlanForUpload(parsed, true));
             uploadJson = JSON.stringify(prepared);
             const beforeKiB = json.length / 1024;
             const afterKiB = uploadJson.length / 1024;
@@ -108,7 +116,7 @@ async function run() {
             console.log('Redacting Terraform-marked sensitive values and dropping unused plan fields.');
             console.log(`Plan size: ${beforeKiB.toFixed(1)} KiB → ${afterKiB.toFixed(1)} KiB (${savedPct.toFixed(0)}% smaller)`);
         } else {
-            uploadJson = json;
+            uploadJson = hideNoChangePlans ? JSON.stringify(settle(parsed)) : json;
             console.log('redactSensitive=false: attaching the full unredacted plan JSON.');
             console.log(`Plan size: ${(json.length / 1024).toFixed(1)} KiB`);
         }
@@ -120,6 +128,9 @@ async function run() {
 
         // Attachment type is a contract between this task and the tab — keep both in sync.
         tl.addAttachment(ATTACHMENT_TYPE, attachmentName, stagedPath);
+        if (hideNoChangePlans) {
+            console.log('hideNoChangePlans=true: the tab hides this plan from its dropdown when it has no changes.');
+        }
 
         tl.setResult(tl.TaskResult.Succeeded, `Attached Terraform plan (${resourceCount} resource changes)`);
     } catch (err: any) {
